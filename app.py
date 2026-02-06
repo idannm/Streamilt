@@ -6,7 +6,7 @@ from datetime import datetime
 import json
 import re
 import requests
-
+import os 
 # --- הגדרות עמוד ---
 st.set_page_config(
     page_title="מיני מארקט הזוג",
@@ -211,12 +211,11 @@ def init_connections():
     # כאן אנחנו לא רושמים את הכתובת האמיתית! 
     # המערכת תיקח אותה אוטומטית מה-Advanced Settings
     try:
-        db_url = st.secrets["DB_URL"]
-        api_key = st.secrets["GROQ_API_KEY"]
-        return db_url, api_key
-    except Exception as e:
-        st.error("שגיאה: המפתחות הסודיים לא נמצאו בהגדרות המערכת.")
-        return None, None
+       def init_connections():
+    # זה ימשוך את הנתונים מה-Environment Variables שהגדרת ב-Render
+    DB_URL = os.environ.get("DB_URL")
+    GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+    return DB_URL, GROQ_API_KEY
 
 DB_URL, GROQ_API_KEY = init_connections()
 
