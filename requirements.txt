@@ -1,5 +1,7 @@
+flask
 streamlit
-psycopg2-binary
-pandas
-groq
+gunicorn
 requests
+psycopg2-binary
+groq
+pandas
