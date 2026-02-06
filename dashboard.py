@@ -210,7 +210,9 @@ st.markdown("""
 def init_connections():
     # כאן אנחנו לא רושמים את הכתובת האמיתית! 
     # המערכת תיקח אותה אוטומטית מה-Advanced Settings
+   
     try:
+       
 # תוודא שאין "try:" מעל ה-def הזה שתקוע שם בלי קשר
 def init_connections():
     DB_URL = os.environ.get("DB_URL")
