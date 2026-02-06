@@ -347,7 +347,6 @@ def save_order_to_db(chat_history):
             
             full_info = f"{address} | טלפון: {phone}"
             
-            try:
             conn = get_db_connection()
             cur = conn.cursor()
             cur.execute(
@@ -355,23 +354,17 @@ def save_order_to_db(chat_history):
                 (name, items, total, full_info, 'ממתין לאישור')
             )
             order_id = cur.fetchone()[0]
-            conn = get_db_connection()
-            cur = conn.cursor()
-            # אנחנו מוודאים שהשמות הם: customer_name, items, total_price, address, status
-            cur.execute(
-                "INSERT INTO orders (customer_name, items, total_price, address, status) VALUES (%s, %s, %s, %s, %s) RETURNING id",
-                (name, items, total, full_info, 'ממתין לאישור')
-                )
-                order_id = cur.fetchone()[0]
-                conn.commit()
-                cur.close()
-                conn.close()
-    
-                st.session_state.current_order_id = order_id
-                return True
-        except Exception as e:
-                st.error(f"שגיאה בשמירת ההזמנה: {e}")
-                return False
+            conn.commit()
+            cur.close()
+            conn.close()
+            
+            st.session_state.current_order_id = order_id
+            return True
+            
+    except Exception as e:
+        st.error(f"❌ שגיאה בשמירת ההזמנה: {e}")
+        return False
+    return False
 
 def update_order_in_db(order_id, chat_history):
     """עדכון הזמנה קיימת עם ולידציה"""
