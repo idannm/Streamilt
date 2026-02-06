@@ -231,7 +231,7 @@ def send_whatsapp_notification(phone_number, message):
     try:
         # נקרא ל-API של הבוט
         response = requests.post(
-            "http://localhost:5000/send_update",  # או הכתובת של השרת שלך
+            "https://minimarket-ocfq.onrender.com/send_update",  # או הכתובת של השרת שלך
             json={
                 "phone": phone_number,
                 "message": message
