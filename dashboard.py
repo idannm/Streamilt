@@ -228,10 +228,11 @@ def get_db_connection():
 
 def send_whatsapp_notification(phone_number, message):
     """שליחת הודעה לוואטסאפ של הלקוח"""
+def send_whatsapp_notification(phone_number, message):
     try:
-        # נקרא ל-API של הבוט
+        # הקוד מוזז ימינה - זה קריטי!
         response = requests.post(
-            "https://minimarket-ocfq.onrender.com/send_update",  # או הכתובת של השרת שלך
+            "https://minimarket-ocfq.onrender.com/send_update", 
             json={
                 "phone": phone_number,
                 "message": message
@@ -240,7 +241,6 @@ def send_whatsapp_notification(phone_number, message):
         )
         return response.status_code == 200
     except:
-        # אם הבוט לא רץ - לא נורא
         return False
 
 def run_query(query, params=None):
