@@ -5,24 +5,23 @@ import pandas as pd
 from datetime import datetime
 import json
 import os
+import time
 
 # --- הגדרות עמוד ---
 st.set_page_config(
     page_title="מיני מארקט הזוג",
     page_icon="🛒",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
-# --- עיצוב מתקדם ---
+# --- עיצוב ---
 st.markdown("""
     <style>
-    /* עיצוב כללי */
     .stApp {
         background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
     }
     
-    /* כותרת ראשית */
     .main-title {
         text-align: center;
         color: #f0f0f0;
@@ -44,7 +43,6 @@ st.markdown("""
         margin-bottom: 30px;
     }
     
-    /* תיבת צ'אט */
     .stChatMessage {
         background-color: rgba(255, 255, 255, 0.05);
         border-radius: 15px;
@@ -53,19 +51,16 @@ st.markdown("""
         border: 1px solid rgba(255, 255, 255, 0.1);
     }
     
-    /* הודעות משתמש */
     .stChatMessage[data-testid="user-message"] {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         border: none;
     }
     
-    /* הודעות בוט */
     .stChatMessage[data-testid="assistant-message"] {
         background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
         border: none;
     }
     
-    /* שדה קלט */
     .stChatInputContainer {
         position: fixed;
         bottom: 20px;
@@ -77,7 +72,6 @@ st.markdown("""
         box-shadow: 0 -5px 20px rgba(0,0,0,0.3);
     }
     
-    /* כפתורים */
     .stButton > button {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
@@ -95,7 +89,6 @@ st.markdown("""
         box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
     }
     
-    /* כרטיסי הזמנות */
     .order-card {
         background: rgba(255, 255, 255, 0.05);
         border-radius: 15px;
@@ -111,7 +104,6 @@ st.markdown("""
         border-color: rgba(102, 126, 234, 0.5);
     }
     
-    /* טאבים */
     .stTabs [data-baseweb="tab-list"] {
         gap: 10px;
         background-color: transparent;
@@ -132,25 +124,21 @@ st.markdown("""
         border: none;
     }
     
-    /* סיידבר */
     .css-1d391kg, [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
         border-right: 2px solid rgba(255, 255, 255, 0.1);
     }
     
-    /* טקסט */
     h1, h2, h3, p, label, .stMarkdown {
         color: #f0f0f0 !important;
     }
     
-    /* טבלאות */
     .dataframe {
         background-color: rgba(255, 255, 255, 0.05);
         border-radius: 10px;
         color: #f0f0f0;
     }
     
-    /* אינפוטים */
     .stTextInput > div > div > input {
         background-color: white !important;
         border: 2px solid rgba(102, 126, 234, 0.5) !important;
@@ -174,14 +162,12 @@ st.markdown("""
         font-weight: 500;
     }
     
-    /* תיבת הצ'אט */
     .stChatInput > div > div > input {
         background-color: white !important;
         color: #000000 !important;
         font-weight: 500;
     }
     
-    /* הודעות הצלחה */
     .stSuccess {
         background-color: rgba(46, 213, 115, 0.1);
         border: 1px solid #2ed573;
@@ -189,7 +175,6 @@ st.markdown("""
         color: #2ed573;
     }
     
-    /* הודעות שגיאה */
     .stError {
         background-color: rgba(255, 71, 87, 0.1);
         border: 1px solid #ff4757;
@@ -197,9 +182,17 @@ st.markdown("""
         color: #ff4757;
     }
     
-    /* מרווח תחתון לצ'אט */
     .main .block-container {
         padding-bottom: 150px;
+    }
+    
+    /* עיצוב כרטיס הזמנה */
+    .user-order-card {
+        background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+        border: 2px solid rgba(102, 126, 234, 0.3);
+        border-radius: 15px;
+        padding: 15px;
+        margin: 10px 0;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -213,7 +206,6 @@ def init_connections():
 
 DB_URL, GROQ_API_KEY = init_connections()
 
-# אתחול הלקוח של Groq
 if GROQ_API_KEY:
     client = Groq(api_key=GROQ_API_KEY)
 else:
@@ -233,73 +225,51 @@ def run_query(query, params=None):
         conn.close()
         return True
     except Exception as e:
-        st.error(f"❌ שגיאה בביצוע השאילתה: {e}")
+        st.error(f"❌ שגיאה: {e}")
         return False
 
 def validate_phone(phone):
-    """בדיקת תקינות מספר טלפון ישראלי"""
     phone = phone.replace(" ", "").replace("-", "")
-    
     if not phone.isdigit():
         return False, "מספר הטלפון חייב להכיל רק ספרות"
-    
     if len(phone) == 10 and phone.startswith("0"):
         return True, phone
     elif len(phone) == 9:
         return True, "0" + phone
     else:
-        return False, "מספר טלפון ישראלי חייב להכיל 10 ספרות (מתחיל ב-0) או 9 ספרות"
+        return False, "מספר טלפון ישראלי חייב להכיל 10 ספרות"
 
 def validate_address(address):
-    """בדיקת תקינות כתובת"""
     if len(address) < 5:
-        return False, "הכתובת קצרה מדי. נא להזין רחוב ומספר בית"
-    
+        return False, "הכתובת קצרה מדי"
     has_letter = any(c.isalpha() for c in address)
     has_number = any(c.isdigit() for c in address)
-    
     if not has_letter or not has_number:
-        return False, "נא להזין כתובת מלאה הכוללת שם רחוב ומספר בית"
-    
+        return False, "נא להזין כתובת מלאה"
     return True, address
 
 def validate_name(name):
-    """בדיקת תקינות שם"""
     if len(name) < 2:
         return False, "השם קצר מדי"
-    
     words = name.split()
     if len(words) < 2:
-        return False, "נא להזין שם מלא (שם פרטי ושם משפחה)"
-    
+        return False, "נא להזין שם מלא"
     if any(len(word) < 2 for word in words):
         return False, "כל חלק בשם חייב להכיל לפחות 2 תווים"
-    
     return True, name
 
 def save_order_to_db(chat_history):
-    """שמירת הזמנה למסד הנתונים עם ולידציה"""
     prompt = f"""
-    קרא את השיחה הבאה וחלץ את המידע הבא בדיוק:
-    
+    קרא את השיחה וחלץ:
     {chat_history}
     
-    החזר JSON בפורמט הזה בדיוק (ללא טקסט נוסף):
-    {{
-        "name": "שם הלקוח המלא",
-        "phone": "מספר הטלפון",
-        "address": "הכתובת המלאה",
-        "items": "רשימת כל המוצרים שהוזמנו",
-        "total": הסכום_הכולל_כמספר
-    }}
-    
-    חשוב: אם חסר מידע, השאר ריק אבל החזר JSON תקני.
+    JSON: {{"name": "שם מלא", "phone": "טלפון", "address": "כתובת", "items": "מוצרים", "total": מספר}}
     """
     try:
         res = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[
-                {"role": "system", "content": "אתה מחלץ מידע מדויק. החזר רק JSON תקין, ללא הסבר או טקסט נוסף."},
+                {"role": "system", "content": "החזר רק JSON תקין."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.1,
@@ -333,16 +303,16 @@ def save_order_to_db(chat_history):
                 errors.append(f"❌ כתובת: {address_msg}")
             
             if not items or len(items) < 3:
-                errors.append("❌ פריטים: לא נמצאו פריטים בהזמנה")
+                errors.append("❌ פריטים: לא נמצאו")
             
             if total <= 0:
-                errors.append("❌ סכום: הסכום חייב להיות גדול מ-0")
+                errors.append("❌ סכום: חייב להיות גדול מ-0")
             
             if errors:
-                st.error("⚠️ יש בעיות בפרטי ההזמנה:")
+                st.error("⚠️ בעיות בהזמנה:")
                 for error in errors:
                     st.warning(error)
-                st.info("💡 בבקשה תקן את הפרטים הבאים ונסה שוב")
+                st.info("💡 תקן את הפרטים")
                 return False
             
             full_info = f"{address} | טלפון: {phone}"
@@ -359,88 +329,25 @@ def save_order_to_db(chat_history):
             conn.close()
             
             st.session_state.current_order_id = order_id
+            st.session_state.user_phone = phone
+            st.session_state.user_name = name
             return True
             
     except Exception as e:
-        st.error(f"❌ שגיאה בשמירת ההזמנה: {e}")
+        st.error(f"❌ שגיאה: {e}")
         return False
     return False
 
-def update_order_in_db(order_id, chat_history):
-    """עדכון הזמנה קיימת עם ולידציה"""
-    prompt = f"""
-    חלץ מהשיחה המעודכנת JSON:
-    {chat_history}
-    
-    פורמט: {{"name": "שם", "phone": "טלפון", "address": "כתובת", "items": "מוצרים", "total": מספר}}
-    """
-    try:
-        res = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": "Return ONLY valid JSON."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.1
-        ).choices[0].message.content.strip()
-        
-        if "{" in res:
-            res = res[res.find("{"):res.rfind("}")+1]
-            data = json.loads(res)
-            
-            name = str(data.get('name', 'לקוח'))
-            phone = str(data.get('phone', ''))
-            address = str(data.get('address', ''))
-            items = str(data.get('items', ''))
-            total = float(data.get('total', 0))
-            
-            errors = []
-            
-            name_valid, name_msg = validate_name(name)
-            if not name_valid:
-                errors.append(f"❌ שם: {name_msg}")
-            
-            phone_valid, phone_msg = validate_phone(phone)
-            if not phone_valid:
-                errors.append(f"❌ טלפון: {phone_msg}")
-            else:
-                phone = phone_msg
-            
-            address_valid, address_msg = validate_address(address)
-            if not address_valid:
-                errors.append(f"❌ כתובת: {address_msg}")
-            
-            if errors:
-                for error in errors:
-                    st.warning(error)
-                return False
-            
-            full_info = f"{address} | טלפון: {phone}"
-            
-            conn = get_db_connection()
-            cur = conn.cursor()
-            cur.execute(
-                "UPDATE orders SET customer_name=%s, items=%s, total_price=%s, address=%s WHERE id=%s AND status='ממתין לאישור'",
-                (name, items, total, full_info, order_id)
-            )
-            conn.commit()
-            cur.close()
-            conn.close()
-            return True
-    except Exception as e:
-        print(f"Error updating order: {e}")
-        return False
-    return False
-
-# --- ממשק משתמש ---
+# --- ממשק ---
 if 'store_name' not in st.session_state:
     st.session_state.store_name = "המכולת של הצדיק"
 
 st.markdown(f'<h1 class="main-title">🛒 {st.session_state.store_name}</h1>', unsafe_allow_html=True)
-st.markdown('<p class="subtitle">ברוכים הבאים למכולת הכי נחמדה בעיר! 🌟</p>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">ברוכים הבאים! 🌟</p>', unsafe_allow_html=True)
 
-# --- סיידבר לניהול ---
+# --- סיידבר ---
 with st.sidebar:
+    # בדיקה אם זה מנהל או משתמש רגיל
     st.markdown("### 🔐 כניסת מנהל")
     
     if 'remembered_password' not in st.session_state:
@@ -448,266 +355,153 @@ with st.sidebar:
     
     if st.session_state.remembered_password:
         admin_password = st.session_state.remembered_password
-        st.success("✅ מחובר אוטומטית")
+        st.success("✅ מנהל")
         if st.button("🚪 התנתק"):
             st.session_state.remembered_password = None
             st.rerun()
     else:
         admin_password = st.text_input("סיסמה", type="password", key="admin_pass")
-        remember_me = st.checkbox("💾 זכור אותי")
+        remember_me = st.checkbox("💾 זכור")
         
         if admin_password == "12345" and remember_me:
             st.session_state.remembered_password = "12345"
     
+    # אם מנהל - הצג ניהול
     if admin_password == "12345":
-        st.success("✅ התחברת בהצלחה!")
+        st.success("✅ מחובר!")
         
         admin_section = st.radio(
-            "בחר מה לנהל:",
-            ["📦 ניהול הזמנות", "🏪 ניהול מלאי"],
+            "בחר:",
+            ["📦 הזמנות", "🏪 מלאי"],
             label_visibility="collapsed"
         )
         
-        if admin_section == "📦 ניהול הזמנות":
+        if admin_section == "📦 הזמנות":
             st.markdown("---")
-            st.markdown("### 📋 מצב הזמנות")
+            st.markdown("### 📋 הזמנות")
+            
+            # רענון אוטומטי
+            if st.button("🔄 רענן"):
+                st.rerun()
             
             try:
                 conn = get_db_connection()
                 orders = pd.read_sql_query(
-                    "SELECT * FROM orders ORDER BY created_at DESC LIMIT 30",
+                    "SELECT * FROM orders ORDER BY created_at DESC LIMIT 50",
                     conn
                 )
                 conn.close()
                 
                 if not orders.empty:
-                    tab1, tab2, tab3 = st.tabs(["🔴 ממתינות", "✅ יצאו לדרך", "⭕ מבוטלות"])
+                    tab1, tab2, tab3 = st.tabs(["🔴 ממתינות", "✅ מאושרות", "⭕ מבוטלות"])
                     
                     with tab1:
                         pending = orders[orders['status'] == 'ממתין לאישור']
                         if not pending.empty:
-                            st.markdown(f"#### 📦 {len(pending)} הזמנות חדשות")
+                            st.markdown(f"#### {len(pending)} הזמנות")
                             for i, row in pending.iterrows():
                                 with st.expander(f"📦 {row['customer_name']}", expanded=True):
-                                    st.markdown(f"**🛒 פריטים:** {row['items']}")
-                                    st.markdown(f"**💰 סה״כ:** ₪{row['total_price']}")
-                                    st.markdown(f"**📍 פרטים:** {row['address']}")
-                                    st.markdown(f"**📅 הוזמן:** {row['created_at']}")
+                                    st.markdown(f"**🛒 {row['items']}**")
+                                    st.markdown(f"**💰 ₪{row['total_price']}**")
+                                    st.markdown(f"**📍 {row['address']}**")
+                                    st.markdown(f"**📅 {row['created_at']}**")
                                     
                                     delivery_time = st.text_input(
-                                        "⏰ זמן הגעה משוער:",
+                                        "⏰ זמן הגעה:",
                                         key=f"time_{row['id']}",
-                                        placeholder="לדוגמה: 14:00"
+                                        placeholder="14:00"
                                     )
                                     
                                     col1, col2 = st.columns(2)
                                     with col1:
-                                        if st.button("✅ אשר הזמנה", key=f"approve_{row['id']}", use_container_width=True):
+                                        if st.button("✅ אשר", key=f"app_{row['id']}", use_container_width=True):
                                             if delivery_time:
                                                 if run_query(
                                                     "UPDATE orders SET status='אושר', approved_at=%s, delivery_time=%s WHERE id=%s",
                                                     (datetime.now(), delivery_time, row['id'])
                                                 ):
-                                                    st.success(f"✅ ההזמנה אושרה! זמן הגעה: {delivery_time}")
+                                                    st.success("✅ אושר!")
                                                     st.rerun()
                                             else:
-                                                st.error("⚠️ נא להזין זמן הגעה")
+                                                st.error("⚠️ הזן זמן")
                                     
                                     with col2:
-                                        if st.button("❌ בטל הזמנה", key=f"cancel_btn_{row['id']}", use_container_width=True):
-                                            st.session_state[f'canceling_{row["id"]}'] = True
-                                            st.rerun()
-                                    
-                                    if st.session_state.get(f'canceling_{row["id"]}', False):
-                                        st.markdown("---")
-                                        st.markdown("### 📝 סיבת הביטול")
-                                        
-                                        cancel_reason = st.radio(
-                                            "בחר סיבה:",
-                                            ["חוסר במלאי", "טעות בהזמנה", "בקשת לקוח", "אחר"],
-                                            key=f"reason_{row['id']}"
-                                        )
-                                        
-                                        custom_reason = ""
-                                        if cancel_reason == "אחר":
-                                            custom_reason = st.text_area(
-                                                "פרט את הסיבה:",
-                                                key=f"custom_reason_{row['id']}",
-                                                placeholder="כתוב כאן..."
-                                            )
-                                        
-                                        col_confirm, col_back = st.columns(2)
-                                        with col_confirm:
-                                            if st.button("✔️ אשר ביטול", key=f"confirm_cancel_{row['id']}", use_container_width=True):
-                                                final_reason = custom_reason if cancel_reason == "אחר" else cancel_reason
-                                                
-                                                if cancel_reason == "אחר" and not custom_reason:
-                                                    st.error("⚠️ נא להזין סיבה")
-                                                else:
-                                                    if run_query(
-                                                        "UPDATE orders SET status='בוטל', cancellation_reason=%s WHERE id=%s",
-                                                        (final_reason, row['id'])
-                                                    ):
-                                                        if cancel_reason == "חוסר במלאי":
-                                                            notification_msg = f"שלום {row['customer_name']}, מצטערים אבל יש לנו חוסר במלאי עבור ההזמנה שלך. סיבה: {final_reason}. האם תרצה להזמין משהו אחר במקום? 😊"
-                                                        else:
-                                                            notification_msg = f"שלום {row['customer_name']}, ההזמנה שלך בוטלה. סיבה: {final_reason}"
-                                                        
-                                                        run_query(
-                                                            "INSERT INTO customer_notifications (order_id, message, created_at) VALUES (%s, %s, %s)",
-                                                            (row['id'], notification_msg, datetime.now())
-                                                        )
-                                                        
-                                                        st.success(f"✅ ההזמנה בוטלה והלקוח קיבל הודעה: {final_reason}")
-                                                        del st.session_state[f'canceling_{row["id"]}']
-                                                        st.rerun()
-                                        
-                                        with col_back:
-                                            if st.button("⬅️ חזור", key=f"back_cancel_{row['id']}", use_container_width=True):
-                                                del st.session_state[f'canceling_{row["id"]}']
+                                        if st.button("❌ בטל", key=f"can_{row['id']}", use_container_width=True):
+                                            if run_query(
+                                                "UPDATE orders SET status='בוטל', cancellation_reason=%s WHERE id=%s",
+                                                ("בוטל על ידי המנהל", row['id'])
+                                            ):
+                                                st.success("❌ בוטל")
                                                 st.rerun()
                         else:
-                            st.info("📭 אין הזמנות ממתינות")
+                            st.info("📭 אין ממתינות")
                     
                     with tab2:
                         approved = orders[orders['status'] == 'אושר']
                         if not approved.empty:
-                            st.markdown(f"#### 🚚 {len(approved)} הזמנות בדרך")
+                            st.markdown(f"#### {len(approved)} מאושרות")
                             for i, row in approved.iterrows():
-                                with st.expander(f"✅ {row['customer_name']} - זמן הגעה: {row['delivery_time']}"):
-                                    st.markdown(f"**🛒 פריטים:** {row['items']}")
-                                    st.markdown(f"**💰 סה״כ:** ₪{row['total_price']}")
-                                    st.markdown(f"**📍 פרטים:** {row['address']}")
-                                    st.markdown(f"**📅 הוזמן:** {row['created_at']}")
-                                    st.markdown(f"**✅ אושר:** {row['approved_at']}")
-                                    st.markdown(f"**⏰ זמן הגעה:** {row['delivery_time']}")
+                                with st.expander(f"✅ {row['customer_name']} - {row['delivery_time']}"):
+                                    st.markdown(f"**🛒 {row['items']}**")
+                                    st.markdown(f"**💰 ₪{row['total_price']}**")
+                                    st.markdown(f"**📍 {row['address']}**")
+                                    st.markdown(f"**⏰ {row['delivery_time']}**")
+                                    
+                                    if st.button("🗑️ מחק", key=f"del_app_{row['id']}", use_container_width=True):
+                                        conn = get_db_connection()
+                                        cur = conn.cursor()
+                                        cur.execute("DELETE FROM orders WHERE id = %s", (row['id'],))
+                                        conn.commit()
+                                        cur.close()
+                                        conn.close()
+                                        st.success("✅ נמחק")
+                                        st.rerun()
                         else:
-                            st.info("📭 אין הזמנות בדרך")
+                            st.info("📭 אין מאושרות")
                     
                     with tab3:
                         canceled = orders[orders['status'] == 'בוטל']
                         if not canceled.empty:
-                            st.markdown(f"#### ⭕ {len(canceled)} הזמנות מבוטלות")
+                            st.markdown(f"#### {len(canceled)} מבוטלות")
                             for i, row in canceled.iterrows():
-                                reason = row.get('cancellation_reason', 'לא צוין')
-                                with st.expander(f"⭕ {row['customer_name']} - {reason}"):
-                                    st.markdown(f"**🛒 פריטים:** {row['items']}")
-                                    st.markdown(f"**💰 סה״כ:** ₪{row['total_price']}")
-                                    st.markdown(f"**📍 פרטים:** {row['address']}")
-                                    st.markdown(f"**📅 הוזמן:** {row['created_at']}")
-                                    st.markdown(f"**❌ סיבת ביטול:** {reason}")
+                                with st.expander(f"⭕ {row['customer_name']}"):
+                                    st.markdown(f"**🛒 {row['items']}**")
+                                    st.markdown(f"**💰 ₪{row['total_price']}**")
                                     
-                                    st.markdown("---")
-                                    
-                                    st.markdown("""
-                                        <style>
-                                        div[data-testid*="stButton"] button[kind="secondary"] {
-                                            background: white !important;
-                                            color: #1a1a2e !important;
-                                            border: 2px solid #ddd !important;
-                                            font-weight: 600 !important;
-                                        }
-                                        div[data-testid*="stButton"] button[kind="secondary"]:hover {
-                                            background: #f0f0f0 !important;
-                                            border-color: #ff4757 !important;
-                                            color: #ff4757 !important;
-                                        }
-                                        </style>
-                                    """, unsafe_allow_html=True)
-                                    
-                                    if st.button("🗑️ מחק הזמנה לצמיתות", key=f"delete_order_{row['id']}", use_container_width=True, type="secondary"):
-                                        st.session_state[f'confirm_delete_{row["id"]}'] = True
+                                    if st.button("🗑️ מחק", key=f"del_can_{row['id']}", use_container_width=True):
+                                        conn = get_db_connection()
+                                        cur = conn.cursor()
+                                        cur.execute("DELETE FROM customer_notifications WHERE order_id = %s", (row['id'],))
+                                        cur.execute("DELETE FROM orders WHERE id = %s", (row['id'],))
+                                        conn.commit()
+                                        cur.close()
+                                        conn.close()
+                                        st.success("✅ נמחק")
                                         st.rerun()
-                                    
-                                    if st.session_state.get(f'confirm_delete_{row["id"]}', False):
-                                        st.warning("⚠️ האם אתה בטוח שברצונך למחוק הזמנה זו לצמיתות?")
-                                        st.info("פעולה זו אינה ניתנת לביטול!")
-                                        
-                                        col_yes, col_no = st.columns(2)
-                                        with col_yes:
-                                            if st.button("✔️ כן, מחק", key=f"yes_delete_{row['id']}", use_container_width=True):
-                                                conn = get_db_connection()
-                                                cur = conn.cursor()
-                                                
-                                                cur.execute("DELETE FROM customer_notifications WHERE order_id = %s", (row['id'],))
-                                                cur.execute("DELETE FROM orders WHERE id = %s", (row['id'],))
-                                                
-                                                conn.commit()
-                                                cur.close()
-                                                conn.close()
-                                                
-                                                st.success(f"✅ ההזמנה של {row['customer_name']} נמחקה לצמיתות")
-                                                del st.session_state[f'confirm_delete_{row["id"]}']
-                                                st.rerun()
-                                        
-                                        with col_no:
-                                            if st.button("❌ לא, בטל", key=f"no_delete_{row['id']}", use_container_width=True):
-                                                del st.session_state[f'confirm_delete_{row["id"]}']
-                                                st.rerun()
                         else:
-                            st.info("אין הזמנות מבוטלות")
-                    
-                    st.markdown("---")
-                    st.markdown("### 📊 סטטיסטיקות")
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("⏳ ממתינות", len(orders[orders['status'] == 'ממתין לאישור']))
-                    with col2:
-                        st.metric("✅ יצאו לדרך", len(orders[orders['status'] == 'אושר']))
-                    with col3:
-                        st.metric("⭕ מבוטלות", len(orders[orders['status'] == 'בוטל']))
+                            st.info("אין מבוטלות")
                         
                 else:
-                    st.info("📭 אין הזמנות כרגע")
+                    st.info("📭 אין הזמנות")
                     
             except Exception as e:
-                st.error(f"❌ שגיאה בטעינת הזמנות: {e}")
+                st.error(f"❌ שגיאה: {e}")
         
-        elif admin_section == "🏪 ניהול מלאי":
+        elif admin_section == "🏪 מלאי":
             st.markdown("---")
-            st.markdown("### 📦 מלאי נוכחי")
-            
-            search_term = st.text_input("🔍 חפש מוצר...", placeholder="הקלד שם מוצר לחיפוש", key="search_product")
+            st.markdown("### 📦 מלאי")
             
             try:
                 conn = get_db_connection()
-                if search_term:
-                    inventory = pd.read_sql_query(
-                        "SELECT id, name, price, stock FROM products WHERE name ILIKE %s ORDER BY name",
-                        conn,
-                        params=(f"%{search_term}%",)
-                    )
-                else:
-                    inventory = pd.read_sql_query(
-                        "SELECT id, name, price, stock FROM products ORDER BY name",
-                        conn
-                    )
+                inventory = pd.read_sql_query(
+                    "SELECT id, name, price, stock FROM products ORDER BY name",
+                    conn
+                )
                 conn.close()
                 
                 if not inventory.empty:
-                    if search_term:
-                        st.info(f"🔍 נמצאו {len(inventory)} מוצרים המכילים '{search_term}'")
-                    
-                    st.markdown("""
-                    <div style='background: rgba(255,255,255,0.05); padding: 15px; border-radius: 10px; margin-bottom: 20px;'>
-                    """, unsafe_allow_html=True)
-                    
-                    header_cols = st.columns([3, 1.5, 1.5, 1, 1])
-                    with header_cols[0]:
-                        st.markdown("**📦 שם המוצר**")
-                    with header_cols[1]:
-                        st.markdown("**💰 מחיר**")
-                    with header_cols[2]:
-                        st.markdown("**📊 מלאי**")
-                    with header_cols[3]:
-                        st.markdown("**✏️**")
-                    with header_cols[4]:
-                        st.markdown("**🗑️**")
-                    
-                    st.markdown("---")
-                    
                     for idx, row in inventory.iterrows():
-                        cols = st.columns([3, 1.5, 1.5, 1, 1])
+                        cols = st.columns([3, 1.5, 1.5, 1])
                         
                         with cols[0]:
                             st.markdown(f"**{row['name']}**")
@@ -715,224 +509,115 @@ with st.sidebar:
                             st.markdown(f"₪{row['price']}")
                         with cols[2]:
                             if row['stock'] == 0:
-                                st.markdown(f"🔴 **{row['stock']}**")
+                                st.markdown(f"🔴 {row['stock']}")
                             elif row['stock'] < 5:
-                                st.markdown(f"🟡 **{row['stock']}**")
+                                st.markdown(f"🟡 {row['stock']}")
                             else:
-                                st.markdown(f"🟢 **{row['stock']}**")
+                                st.markdown(f"🟢 {row['stock']}")
                         with cols[3]:
-                            if st.button("✏️", key=f"edit_{row['id']}", use_container_width=True):
-                                st.session_state.editing_product = {
-                                    'id': row['id'],
-                                    'name': row['name'],
-                                    'price': float(row['price']),
-                                    'stock': int(row['stock'])
-                                }
-                                st.rerun()
-                        with cols[4]:
-                            if st.button("🗑️", key=f"delete_{row['id']}", use_container_width=True):
+                            if st.button("🗑️", key=f"del_{row['id']}", use_container_width=True):
                                 conn = get_db_connection()
                                 cur = conn.cursor()
                                 cur.execute("DELETE FROM products WHERE id = %s", (row['id'],))
                                 conn.commit()
                                 cur.close()
                                 conn.close()
-                                st.success(f"✅ המוצר '{row['name']}' נמחק!")
+                                st.success("✅ נמחק")
                                 st.rerun()
                     
-                    st.markdown("</div>", unsafe_allow_html=True)
                     st.markdown("---")
+                    st.markdown("### ➕ הוסף")
                     
-                    if hasattr(st.session_state, 'editing_product') and st.session_state.editing_product:
-                        st.markdown("### ✏️ עריכת מוצר")
-                        product = st.session_state.editing_product
-                        
-                        product_name = st.text_input("📦 שם המוצר", value=product['name'], key="edit_name")
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            product_price = st.number_input("💰 מחיר (₪)", min_value=0.0, step=0.5, value=product['price'], key="edit_price")
-                        with col2:
-                            product_stock = st.number_input("📊 כמות במלאי", min_value=0, step=1, value=product['stock'], key="edit_stock")
-                        
-                        col_save, col_cancel = st.columns(2)
-                        with col_save:
-                            if st.button("💾 שמור שינויים", use_container_width=True, type="primary"):
-                                if product_name and product_price >= 0:
-                                    conn = get_db_connection()
-                                    cur = conn.cursor()
-                                    cur.execute(
-                                        "UPDATE products SET name = %s, price = %s, stock = %s WHERE id = %s",
-                                        (product_name, product_price, product_stock, product['id'])
-                                    )
-                                    conn.commit()
-                                    cur.close()
-                                    conn.close()
-                                    st.success(f"✅ המוצר '{product_name}' עודכן!")
-                                    del st.session_state.editing_product
-                                    st.rerun()
-                                else:
-                                    st.error("⚠️ נא למלא את כל הפרטים")
-                        
-                        with col_cancel:
-                            if st.button("❌ ביטול", use_container_width=True):
-                                del st.session_state.editing_product
-                                st.rerun()
-                    else:
-                        st.markdown("### ➕ הוסף מוצר חדש")
-                        
-                        product_name = st.text_input("📦 שם המוצר", placeholder="לדוגמה: חלב")
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            product_price = st.number_input("💰 מחיר (₪)", min_value=0.0, step=0.5, value=0.0)
-                        with col2:
-                            product_stock = st.number_input("📊 כמות במלאי", min_value=0, step=1, value=0)
-                        
-                        if 'adding_product' not in st.session_state:
-                            st.session_state.adding_product = False
-                        
-                        if st.button("💾 הוסף מוצר", use_container_width=True, type="primary", disabled=st.session_state.adding_product):
-                            if product_name and product_price > 0:
-                                st.session_state.adding_product = True
-                                conn = get_db_connection()
-                                cur = conn.cursor()
-                                cur.execute("SELECT id FROM products WHERE name = %s", (product_name,))
-                                existing = cur.fetchone()
-                                
-                                if existing:
-                                    st.error(f"⚠️ המוצר '{product_name}' כבר קיים!")
-                                    st.session_state.adding_product = False
-                                else:
-                                    cur.execute(
-                                        "INSERT INTO products (name, price, stock) VALUES (%s, %s, %s)",
-                                        (product_name, product_price, product_stock)
-                                    )
-                                    conn.commit()
-                                    st.success(f"✅ המוצר '{product_name}' נוסף!")
-                                    st.session_state.adding_product = False
-                                
-                                cur.close()
-                                conn.close()
-                                st.rerun()
-                            else:
-                                st.error("⚠️ נא למלא שם ומחיר")
-                else:
-                    if search_term:
-                        st.warning(f"❌ לא נמצאו מוצרים המכילים '{search_term}'")
-                        st.info("💡 נסה לחפש במילים אחרות או נקה את החיפוש")
-                    else:
-                        st.info("📭 אין מוצרים במלאי")
-                    st.markdown("---")
-                    st.markdown("### ➕ הוסף מוצר ראשון")
-                    
-                    product_name = st.text_input("📦 שם המוצר", placeholder="לדוגמה: חלב", key="first_product_name")
+                    name = st.text_input("📦 שם", placeholder="חלב")
                     col1, col2 = st.columns(2)
                     with col1:
-                        product_price = st.number_input("💰 מחיר (₪)", min_value=0.0, step=0.5, key="first_product_price")
+                        price = st.number_input("💰 מחיר", min_value=0.0, step=0.5, value=0.0)
                     with col2:
-                        product_stock = st.number_input("📊 כמות במלאי", min_value=0, step=1, key="first_product_stock")
+                        stock = st.number_input("📊 מלאי", min_value=0, step=1, value=0)
                     
-                    if 'adding_first_product' not in st.session_state:
-                        st.session_state.adding_first_product = False
-                    
-                    if st.button("💾 הוסף מוצר", use_container_width=True, type="primary", disabled=st.session_state.adding_first_product, key="add_first_product_btn"):
-                        if product_name and product_price > 0:
-                            st.session_state.adding_first_product = True
+                    if st.button("💾 הוסף", use_container_width=True, type="primary"):
+                        if name and price > 0:
                             conn = get_db_connection()
                             cur = conn.cursor()
                             cur.execute(
                                 "INSERT INTO products (name, price, stock) VALUES (%s, %s, %s)",
-                                (product_name, product_price, product_stock)
+                                (name, price, stock)
                             )
                             conn.commit()
                             cur.close()
                             conn.close()
-                            st.success(f"✅ המוצר '{product_name}' נוסף!")
-                            st.session_state.adding_first_product = False
+                            st.success("✅ נוסף!")
                             st.rerun()
                         else:
-                            st.error("⚠️ נא למלא שם ומחיר")
+                            st.error("⚠️ מלא שם ומחיר")
+                else:
+                    st.info("📭 אין מוצרים")
                     
             except Exception as e:
-                st.error(f"❌ שגיאה בטעינת המלאי: {e}")
+                st.error(f"❌ שגיאה: {e}")
     
-    elif admin_password and admin_password != "12345":
-        st.error("❌ סיסמה שגויה")
+    # אם משתמש רגיל - הצג את ההזמנות שלו
+    elif 'user_phone' in st.session_state and st.session_state.user_phone:
+        st.markdown("---")
+        st.markdown("### 📦 ההזמנות שלי")
+        
+        # רענון אוטומטי כל 5 שניות
+        placeholder = st.empty()
+        
+        try:
+            conn = get_db_connection()
+            user_orders = pd.read_sql_query(
+                "SELECT * FROM orders WHERE address LIKE %s ORDER BY created_at DESC LIMIT 10",
+                conn,
+                params=(f"%{st.session_state.user_phone}%",)
+            )
+            conn.close()
+            
+            if not user_orders.empty:
+                for i, order in user_orders.iterrows():
+                    if order['status'] == 'אושר':
+                        st.markdown(f"""
+                        <div class='user-order-card'>
+                        <h4>✅ הזמנה #{order['id']} - אושרה!</h4>
+                        <p><strong>🛒 {order['items']}</strong></p>
+                        <p><strong>💰 ₪{order['total_price']}</strong></p>
+                        <p><strong>⏰ הגעה: {order['delivery_time']}</strong></p>
+                        <p style='color: #2ed573;'>✨ ההזמנה בדרך אליך!</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        if st.button(f"🗑️ מחק הזמנה #{order['id']}", key=f"user_del_{order['id']}"):
+                            conn = get_db_connection()
+                            cur = conn.cursor()
+                            cur.execute("DELETE FROM orders WHERE id = %s", (order['id'],))
+                            conn.commit()
+                            cur.close()
+                            conn.close()
+                            st.success("✅ נמחק")
+                            st.rerun()
+                    
+                    elif order['status'] == 'ממתין לאישור':
+                        st.info(f"⏳ הזמנה #{order['id']} ממתינה לאישור המנהל")
+                    
+                    elif order['status'] == 'בוטל':
+                        reason = order.get('cancellation_reason', 'לא צוין')
+                        st.error(f"❌ הזמנה #{order['id']} בוטלה - {reason}")
+            else:
+                st.info("אין הזמנות")
+                
+            # רענון אוטומטי
+            if st.button("🔄 רענן הזמנות"):
+                st.rerun()
+                
+        except Exception as e:
+            st.error(f"שגיאה: {e}")
 
-# --- צ'אט הזמנות ---
+# --- צ'אט ---
 st.markdown("---")
 st.markdown("### 💬 בואו נזמין!")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
-    st.session_state.current_order_id = None
-    st.session_state.order_pending = False
-
-# בדיקת סטטוס הזמנה
-if hasattr(st.session_state, 'current_order_id') and st.session_state.current_order_id:
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT status, delivery_time, cancellation_reason FROM orders WHERE id=%s",
-            (st.session_state.current_order_id,)
-        )
-        result = cur.fetchone()
-        
-        cur.execute(
-            "SELECT message FROM customer_notifications WHERE order_id=%s ORDER BY created_at DESC LIMIT 1",
-            (st.session_state.current_order_id,)
-        )
-        notification = cur.fetchone()
-        
-        cur.close()
-        conn.close()
-        
-        if result:
-            if result[0] == 'אושר':
-                st.success(f"🎉 ההזמנה שלך אושרה! המשלוח יגיע בשעה: {result[1]}")
-                st.info("✨ ההזמנה בהכנה ובדרך אליך!")
-                
-                if st.button("🔄 התחל הזמנה חדשה"):
-                    st.session_state.messages = []
-                    st.session_state.current_order_id = None
-                    st.session_state.order_pending = False
-                    st.rerun()
-            
-            elif result[0] == 'בוטל':
-                reason = result[2] if result[2] else "לא צוין"
-                st.error(f"😔 ההזמנה שלך בוטלה")
-                
-                if notification:
-                    st.info(notification[0])
-                else:
-                    st.info(f"סיבת הביטול: {reason}")
-                
-                if reason == "חוסר במלאי":
-                    st.markdown("---")
-                    st.markdown("### 🔄 תרצה להזמין משהו אחר?")
-                    
-                    try:
-                        conn = get_db_connection()
-                        available_products = pd.read_sql_query(
-                            "SELECT name, price FROM products WHERE stock > 0 ORDER BY name",
-                            conn
-                        )
-                        conn.close()
-                        
-                        if not available_products.empty:
-                            st.markdown("**המוצרים הזמינים עכשיו:**")
-                            for _, prod in available_products.iterrows():
-                                st.markdown(f"• {prod['name']} - ₪{prod['price']}")
-                    except:
-                        pass
-                
-                if st.button("🔄 התחל הזמנה חדשה", key="new_order_after_cancel"):
-                    st.session_state.messages = []
-                    st.session_state.current_order_id = None
-                    st.session_state.order_pending = False
-                    st.rerun()
-    except:
-        pass
 
 # טעינת מלאי
 try:
@@ -949,66 +634,42 @@ try:
             inventory_list.append(f"• {row['name']} - ₪{row['price']}")
         inventory_info = "\n".join(inventory_list)
     else:
-        inventory_info = "אין מוצרים זמינים כרגע"
+        inventory_info = "אין מוצרים זמינים"
 except:
-    inventory_info = "שגיאה בטעינת המלאי"
+    inventory_info = "שגיאה"
 
-# הצגת היסטוריית שיחה
+# הצגת שיחה
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# קלט משתמש
-if prompt := st.chat_input("הקלד כאן את ההזמנה שלך... 🛒"):
+# קלט
+if prompt := st.chat_input("הקלד הזמנה... 🛒"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
     
     system_prompt = f"""
-אתה עוזר חמוד ונחמד במכולת '{st.session_state.store_name}'. תמיד תהיה חביב, סבלני ועוזר.
+אתה עוזר במכולת '{st.session_state.store_name}'.
 
-המוצרים שיש לנו במכולת:
+מוצרים:
 {inventory_info}
 
-איך להתנהג:
-1. תהיה טבעי ונחמד, כמו חבר
-2. כשלקוח שואל על מחיר - ספר לו ישר
-3. כשלקוח מזמין מוצר - ספר מחיר ושאל אם רוצה עוד
-4. אם מוצר לא קיים - תגיד "מצטער, אין לנו את זה. יש לנו [הצע חלופה]"
-5. כשלקוח אומר "זה הכל" - תן סיכום ובקש פרטים
-6. השתמש בעברית פשוטה, ללא קיצורים
+הנחיות:
+1. היה חביב
+2. כשלקוח שואל מחיר - ספר ישר
+3. כשמזמין - ספר מחיר ושאל אם רוצה עוד
+4. אם אין מוצר - הצע חלופה
+5. "זה הכל" - סכם ובקש:
+   - שם מלא (שם + משפחה)
+   - טלפון (10 ספרות)
+   - כתובת (רחוב + מספר)
 
-חשוב מאוד - בקש פרטים מלאים:
-- שם מלא (שם פרטי ושם משפחה)
-- מספר טלפון ישראלי (10 ספרות)
-- כתובת מלאה (רחוב ומספר בית)
-
-דוגמאות:
-לקוח: "כמה עולה לחם?"
-אתה: "לחם עולה 8.5 ש״ח 🍞"
-
-לקוח: "אני רוצה חלב"
-אתה: "בטח! חלב זה 6 ש״ח 🥛 רוצה להוסיף עוד משהו?"
-
-לקוח: "זה הכל"
-אתה: "מעולה! 
-🛒 הזמנת: חלב
-💰 סה״כ: 6 ש״ח
-
-עכשיו רק צריך ממך:
-👤 שם מלא (שם פרטי ושם משפחה)
-📱 מספר טלפון (10 ספרות)
-📍 כתובת מלאה למשלוח (רחוב ומספר בית)"
-
-חשוב:
-- אל תכתוב מה אתה חושב או מתכנן
-- דבר ישירות ובפשטות
-- רק אחרי שיש לך שם מלא, טלפון תקין וכתובת מלאה - כתוב בסוף: FINALIZE_ORDER
-- אם חסרים פרטים או שהם לא מלאים - בקש אותם שוב
+רק כשיש הכל - כתוב בסוף: FINALIZE_ORDER
 """
     
     try:
-        with st.spinner("⏳ מכין תשובה..."):
+        with st.spinner("⏳ מכין..."):
             response = client.chat.completions.create(
                 model="llama-3.1-8b-instant",
                 messages=[
@@ -1028,18 +689,12 @@ if prompt := st.chat_input("הקלד כאן את ההזמנה שלך... 🛒"):
             
             history = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages])
             
-            with st.spinner("💾 שומר את ההזמנה..."):
-                if hasattr(st.session_state, 'current_order_id') and st.session_state.current_order_id:
-                    if update_order_in_db(st.session_state.current_order_id, history):
-                        st.info("✏️ ההזמנה עודכנה בהצלחה!")
-                        st.session_state.order_pending = True
-                    else:
-                        st.warning("⚠️ לא ניתן לעדכן - ייתכן שההזמנה כבר אושרה")
-                else:
-                    if save_order_to_db(history):
-                        st.success("🎉 ההזמנה נשלחה בהצלחה!")
-                        st.info("⏳ ההזמנה שלך ממתינה לאישור המנהל.")
-                        st.session_state.order_pending = True
+            with st.spinner("💾 שומר..."):
+                if save_order_to_db(history):
+                    st.success("🎉 ההזמנה נשלחה!")
+                    st.info("⏳ ממתין לאישור - תקבל עדכון בצד!")
+                    time.sleep(1)
+                    st.rerun()
         else:
             with st.chat_message("assistant"):
                 st.markdown(response)
@@ -1047,15 +702,14 @@ if prompt := st.chat_input("הקלד כאן את ההזמנה שלך... 🛒"):
             st.session_state.messages.append({"role": "assistant", "content": response})
             
     except Exception as e:
-        st.error(f"❌ שגיאה בתקשורת: {e}")
+        st.error(f"❌ שגיאה: {e}")
 
-# --- פוטר ---
+# פוטר
 st.markdown("---")
 st.markdown(
     f"""
     <div style='text-align: center; color: #a0a0a0; padding: 20px;'>
-        <p>🛒 {st.session_state.store_name} | שירות לקוחות מעולה בכל שעה</p>
-        <p style='font-size: 0.9rem;'>🔒 כל ההזמנות מאובטחות ומוגנות</p>
+        <p>🛒 {st.session_state.store_name}</p>
     </div>
     """,
     unsafe_allow_html=True
