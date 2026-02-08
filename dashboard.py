@@ -1,286 +1,257 @@
 import streamlit as st
+import google.generativeai as genai
 import psycopg2
 import pandas as pd
+import json
 import os
 import requests
 import time
 
-# --- הגדרות ---
-st.set_page_config(page_title="ניהול מכולת הזוג", layout="wide", page_icon="🛒")
+# --- 1. הגדרות ועיצוב ---
+st.set_page_config(
+    page_title="ניהול מכולת - הזוג",
+    page_icon="🛒",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
 
-# --- הגדרות מערכת (כאן משנים דברים!) ---
-# 1. כתובת הבוט ב-Render (וודא שזו הכתובת הנכונה שלך!)
-BOT_URL = os.environ.get("BOT_URL", "https://minimarket-ocfq.onrender.com")
-
-# 2. סיסמאות (חייבות להיות תואמות ל-app.py)
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "12345")       # לכניסה לאתר
-INTERNAL_SECRET = os.environ.get("INTERNAL_SECRET", "idan12345") # לתקשורת עם הבוט
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-
-# --- עיצוב מקצועי ורציני ---
+# עיצוב CSS יוקרתי (Dark Mode)
 st.markdown("""
     <style>
-    .stApp { background-color: #f8f9fa; }
-    h1 { color: #2c3e50; text-align: center; font-weight: 700; padding: 20px 0; border-bottom: 3px solid #3498db; margin-bottom: 30px; }
-    h2, h3 { color: #34495e; font-weight: 600; }
-    .stButton > button { background-color: #3498db; color: white; border: none; border-radius: 6px; padding: 10px 24px; font-weight: 600; transition: all 0.2s; }
-    .stButton > button:hover { background-color: #2980b9; box-shadow: 0 4px 8px rgba(52, 152, 219, 0.3); }
-    .stSuccess { background-color: #d4edda; border: 1px solid #c3e6cb; color: #155724; }
-    .stError { background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; }
-    .login-container { background-color: white; border-radius: 8px; padding: 40px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); border: 1px solid #e1e8ed; }
-    .metric-card { background-color: white; padding: 15px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); text-align: center; }
+    .stApp { background: linear-gradient(135deg, #1e1e2f 0%, #252540 100%); color: white; }
+    h1 { color: #ff6b6b !important; text-align: center; }
+    h2, h3 { color: #feca57 !important; }
+    .stDataFrame { background-color: rgba(255,255,255,0.05); border-radius: 10px; }
+    .stButton>button { background-color: #ff6b6b; color: white; border-radius: 20px; border: none; }
+    .stButton>button:hover { background-color: #ff4757; }
+    .success-msg { color: #2ed573; font-weight: bold; padding: 10px; border: 1px solid #2ed573; border-radius: 5px; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- פונקציות ---
+# --- 2. חיבורים ומשתנים ---
+DB_URL = os.environ.get("DB_URL")
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
+BOT_URL = "https://minimarket-ocfq.onrender.com"  # שנה לכתובת שלך!
+INTERNAL_SECRET = os.environ.get("INTERNAL_SECRET", "123")
+
+# חיבור ל-Gemini
+if GOOGLE_API_KEY:
+    genai.configure(api_key=GOOGLE_API_KEY)
+
 def get_db_connection():
-    return psycopg2.connect(os.environ.get("DB_URL"))
+    return psycopg2.connect(DB_URL)
+
+# --- 3. פונקציות עזר ---
+
+def get_inventory_for_ai():
+    """שליפת המלאי כטקסט עבור ה-AI"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT name, price FROM products WHERE stock > 0")
+        items = cur.fetchall()
+        conn.close()
+        if items: return ", ".join([f"{i[0]} ({i[1]}₪)" for i in items])
+        return "כרגע אין סחורה"
+    except: return "שגיאה בטעינת מלאי"
 
 def notify_customer(phone, message):
-    """שולח הודעה ללקוח דרך הבוט בצורה מאובטחת"""
+    """שליחת הודעת וואטסאפ ללקוח דרך הבוט"""
     try:
-        # ניקוי מספר הטלפון
-        clean_phone = str(phone).replace("WhatsApp:", "").replace("טלפון:", "").replace("-", "").replace(" ", "").replace("|", "").strip()
-        if "טלפון:" in str(phone):
-            clean_phone = str(phone).split("טלפון:")[-1].split("|")[0].strip()
+        clean_phone = str(phone).replace("WhatsApp:", "").replace(" ", "").replace("-", "").strip()
+        if clean_phone.startswith("0"): clean_phone = "972" + clean_phone[1:]
         
-        # שימוש במפתח האבטחה (X-Secret) שתואם ל-app.py
-        headers = {"X-Secret": INTERNAL_SECRET}
-        
-        response = requests.post(
+        # שליחה עם הסיסמה הסודית
+        res = requests.post(
             f"{BOT_URL}/send_update", 
             json={"phone": clean_phone, "message": message},
-            headers=headers,
-            timeout=10
+            headers={"X-Internal-Secret": INTERNAL_SECRET}
         )
-        return response.status_code == 200
+        return res.status_code == 200
+    except: return False
+
+def save_order_from_chat(chat_text):
+    """שימוש ב-Gemini כדי להמיר את השיחה להזמנה"""
+    try:
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        prompt = f"""
+        נתח את השיחה וחלץ JSON תקין בלבד:
+        {{ "name": "שם הלקוח", "phone": "טלפון", "address": "כתובת מלאה", "items": "פירוט מוצרים", "total": 0 }}
+        השיחה: {chat_text}
+        """
+        response = model.generate_content(prompt)
+        # ניקוי הטקסט כדי לקבל רק JSON
+        clean_json = response.text.replace("```json", "").replace("```", "").strip()
+        data = json.loads(clean_json)
+        
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO orders (customer_name, items, total_price, address, status) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+            (data.get('name'), data.get('items'), 0, f"{data.get('address')} | טלפון: {data.get('phone')}", 'ממתין לאישור')
+        )
+        conn.commit()
+        conn.close()
+        return True
     except Exception as e:
-        st.error(f"שגיאה בשליחת הודעה: {e}")
+        st.error(f"שגיאה בשמירה: {e}")
         return False
 
-# --- מסך התחברות ---
+# --- 4. מסך כניסה (Login) ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 
 if not st.session_state.logged_in:
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1, 2, 1])
+    st.markdown("<br><br><h1 style='color: white;'>🔒 כניסה למערכת</h1>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1,2,1])
     with col2:
-        st.markdown("<div class='login-container'>", unsafe_allow_html=True)
-        st.markdown("<h2 style='text-align: center;'>🔐 כניסה למערכת ניהול</h2>", unsafe_allow_html=True)
-        password = st.text_input("סיסמת מנהל:", type="password", placeholder="הזן סיסמה...")
-        if st.button("כניסה למערכת", use_container_width=True):
-            if password == ADMIN_PASSWORD:
+        password = st.text_input("הכנס סיסמת מנהל:", type="password")
+        if st.button("כנס למערכת"):
+            if password == "12345":  # הסיסמה שלך
                 st.session_state.logged_in = True
-                st.success("התחברת בהצלחה!")
-                time.sleep(0.5)
                 st.rerun()
             else:
-                st.error("סיסמה שגויה!")
-        st.markdown("</div>", unsafe_allow_html=True)
+                st.error("סיסמה שגויה")
     st.stop()
 
-# --- כפתור התנתקות ---
-col_space, col_logout = st.columns([6, 1])
-with col_logout:
-    if st.button("🚪 התנתק", use_container_width=True):
-        st.session_state.logged_in = False
+# --- 5. המערכת הראשית (טאבים) ---
+st.title("🛒 דשבורד מכולת - הזוג")
+
+tab1, tab2, tab3 = st.tabs(["📋 ניהול הזמנות", "📦 ניהול מלאי", "💬 צ'אט לקוחות (סימולציה)"])
+
+# --- טאב 1: ניהול הזמנות ---
+with tab1:
+    st.header("הזמנות פתוחות")
+    
+    # כפתור רענון
+    if st.button("🔄 רענן טבלה"):
         st.rerun()
 
-# --- כותרת ראשית ---
-st.markdown("<h1>🛒 מכולת הזוג - דשבורד ניהול</h1>", unsafe_allow_html=True)
+    conn = get_db_connection()
+    df = pd.read_sql("SELECT id, customer_name, items, status, address, created_at FROM orders ORDER BY created_at DESC", conn)
+    conn.close()
 
-# --- טאבים ראשיים ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📦 ממתינות לאישור", 
-    "✅ היסטוריה ומאושרות", 
-    "❌ מבוטלות", 
-    "🏪 ניהול מלאי", 
-    "📊 דוחות וסטטיסטיקה"
-])
+    # טבלה אינטראקטיבית
+    st.dataframe(df, use_container_width=True)
 
-try:
-    # --- טאב 1: הזמנות ממתינות ---
-    with tab1:
-        st.markdown("### ⏳ הזמנות חדשות לטיפול")
-        
-        conn = get_db_connection()
-        pending_df = pd.read_sql("""
-            SELECT id, customer_name, items, total_price, address, created_at 
-            FROM orders WHERE status = 'ממתין לאישור' ORDER BY created_at DESC
-        """, conn)
-        conn.close()
-        
-        if not pending_df.empty:
-            st.dataframe(
-                pending_df,
-                use_container_width=True,
-                column_config={
-                    "id": st.column_config.NumberColumn("מס׳", width="small"),
-                    "customer_name": "לקוח",
-                    "items": "מוצרים",
-                    "total_price": st.column_config.NumberColumn("סה״כ", format="₪%.2f"),
-                    "address": "פרטים",
-                    "created_at": st.column_config.DatetimeColumn("התקבל ב", format="DD/MM HH:mm")
-                }
-            )
-            
-            st.warning("⚠️ יש לטפל בהזמנה אחת בכל פעם")
-            col1, col2, col3 = st.columns([1, 2, 2])
-            
-            with col1:
-                order_id = st.number_input("בחר מס׳ הזמנה:", min_value=1, step=1)
-            
-            with col2:
-                delivery_time = st.text_input("זמן הגעה משוער:", value="25 דקות")
-            
-            with col3:
-                st.write("") # מרווח
-                st.write("") 
-                b_col1, b_col2 = st.columns(2)
-                with b_col1:
-                    if st.button("✅ אשר ושלח הודעה", type="primary", use_container_width=True):
-                        # בדיקה שההזמנה קיימת
-                        row = pending_df[pending_df['id'] == order_id]
-                        if not row.empty:
-                            conn = get_db_connection()
-                            cur = conn.cursor()
-                            cur.execute("UPDATE orders SET status='אושר', delivery_time=%s, approved_at=NOW() WHERE id=%s", (delivery_time, order_id))
-                            conn.commit()
-                            conn.close()
-                            
-                            # שליחת וואטסאפ
-                            cust_name = row.iloc[0]['customer_name']
-                            items_txt = row.iloc[0]['items']
-                            phone_addr = row.iloc[0]['address'] # הטלפון בתוך שדה הכתובת
-                            
-                            msg = f"היי {cust_name}! 👋\nההזמנה שלך (#{order_id}) אושרה ויצאה להכנה.\n🛒 מוצרים: {items_txt}\n🛵 זמן משוער: {delivery_time}.\nתודה!"
-                            
-                            if notify_customer(phone_addr, msg):
-                                st.balloons()
-                                st.success(f"הזמנה {order_id} אושרה ונשלחה הודעה!")
-                                time.sleep(2)
-                                st.rerun()
-                            else:
-                                st.error("ההזמנה אושרה בדאטהבייס, אבל נכשלה שליחת ההודעה לבוט.")
-                        else:
-                            st.error("מספר הזמנה לא נמצא ברשימה.")
-                
-                with b_col2:
-                    if st.button("❌ בטל", type="secondary", use_container_width=True):
-                        conn = get_db_connection()
-                        cur = conn.cursor()
-                        cur.execute("UPDATE orders SET status='בוטל' WHERE id=%s", (order_id,))
-                        conn.commit()
-                        conn.close()
-                        st.info("ההזמנה הועברה למבוטלות.")
-                        time.sleep(1)
-                        st.rerun()
-        else:
-            st.info("🎉 אין הזמנות חדשות כרגע. הכל מטופל!")
+    st.divider()
+    
+    # אזור פעולות על הזמנה
+    c1, c2 = st.columns(2)
+    with c1:
+        order_id = st.number_input("מספר הזמנה לטיפול:", min_value=1, step=1)
+    with c2:
+        delivery_time = st.text_input("זמן משוער:", "20 דקות")
 
-    # --- טאב 2: מאושרות ---
-    with tab2:
-        st.markdown("### ✅ היסטוריית הזמנות שאושרו")
-        conn = get_db_connection()
-        approved_df = pd.read_sql("SELECT * FROM orders WHERE status = 'אושר' ORDER BY created_at DESC", conn)
-        conn.close()
-        
-        if not approved_df.empty:
-            st.dataframe(approved_df, use_container_width=True)
-            with st.expander("🗑️ מחיקת הזמנה ישנה (לצמיתות)"):
-                del_id = st.number_input("מספר הזמנה למחיקה:", min_value=1, step=1, key="del_app")
-                if st.button("מחק לצמיתות"):
-                    conn = get_db_connection()
-                    cur = conn.cursor()
-                    cur.execute("DELETE FROM orders WHERE id=%s", (del_id,))
-                    conn.commit()
-                    conn.close()
-                    st.success("נמחק.")
-                    time.sleep(1)
-                    st.rerun()
-        else:
-            st.info("עדיין אין הזמנות מאושרות.")
-
-    # --- טאב 3: מבוטלות ---
-    with tab3:
-        st.markdown("### ❌ הזמנות שבוטלו")
-        conn = get_db_connection()
-        canc_df = pd.read_sql("SELECT * FROM orders WHERE status = 'בוטל' ORDER BY created_at DESC", conn)
-        conn.close()
-        
-        if not canc_df.empty:
-            st.dataframe(canc_df, use_container_width=True)
-        else:
-            st.info("אין הזמנות מבוטלות.")
-
-    # --- טאב 4: ניהול מלאי ---
-    with tab4:
-        st.markdown("### 🏪 ניהול מוצרים במלאי")
-        conn = get_db_connection()
-        products_df = pd.read_sql("SELECT * FROM products ORDER BY name", conn)
-        conn.close()
-        
-        col_list, col_add = st.columns([2, 1])
-        
-        with col_list:
-            st.dataframe(products_df, use_container_width=True, height=400)
-            
-        with col_add:
-            st.markdown("#### ➕ הוספת מוצר")
-            with st.form("add_prod"):
-                p_name = st.text_input("שם מוצר")
-                p_price = st.number_input("מחיר", min_value=0.0, step=0.5)
-                p_stock = st.number_input("מלאי התחלתי", min_value=0, step=1, value=10)
-                if st.form_submit_button("הוסף למלאי"):
-                    conn = get_db_connection()
-                    cur = conn.cursor()
-                    cur.execute("INSERT INTO products (name, price, stock) VALUES (%s, %s, %s)", (p_name, p_price, p_stock))
-                    conn.commit()
-                    conn.close()
-                    st.success("נוסף בהצלחה!")
-                    time.sleep(1)
-                    st.rerun()
-            
-            st.markdown("#### 🗑️/✏️ עריכה")
-            edit_id = st.number_input("ID מוצר לעריכה/מחיקה:", step=1)
-            c1, c2 = st.columns(2)
-            if c1.button("🗑️ מחק מוצר"):
-                conn = get_db_connection()
-                cur = conn.cursor()
-                cur.execute("DELETE FROM products WHERE id=%s", (edit_id,))
-                conn.commit()
-                conn.close()
-                st.rerun()
-            
-            new_price_val = c2.number_input("מחיר חדש:", step=0.5, key="np")
-            if c2.button("עדכן מחיר"):
-                conn = get_db_connection()
-                cur = conn.cursor()
-                cur.execute("UPDATE products SET price=%s WHERE id=%s", (new_price_val, edit_id))
-                conn.commit()
-                conn.close()
-                st.rerun()
-
-    # --- טאב 5: סטטיסטיקה ---
-    with tab5:
-        st.markdown("### 📊 סיכום נתונים")
-        conn = get_db_connection()
+    if st.button("✅ אשר הזמנה ושלח וואטסאפ ללקוח"):
         try:
-            total_income = pd.read_sql("SELECT SUM(total_price) FROM orders WHERE status='אושר'", conn).iloc[0,0]
-            total_orders = pd.read_sql("SELECT COUNT(*) FROM orders WHERE status='אושר'", conn).iloc[0,0]
-            pending_count = pd.read_sql("SELECT COUNT(*) FROM orders WHERE status='ממתין לאישור'", conn).iloc[0,0]
-        except:
-            total_income, total_orders, pending_count = 0, 0, 0
-        conn.close()
-        
-        m1, m2, m3 = st.columns(3)
-        m1.metric("💰 סה\"כ הכנסות", f"₪{total_income or 0:,.2f}")
-        m2.metric("📦 הזמנות שבוצעו", total_orders)
-        m3.metric("⏳ ממתינות כרגע", pending_count)
-        
-        if st.button("🔄 רענן נתונים"):
-            st.rerun()
+            # משיכת פרטי ההזמנה
+            row = df[df['id'] == order_id]
+            if not row.empty:
+                # עדכון סטטוס
+                conn = get_db_connection()
+                cur = conn.cursor()
+                cur.execute("UPDATE orders SET status = 'אושר' WHERE id = %s", (order_id,))
+                conn.commit()
+                conn.close()
 
-except Exception as e:
-    st.error(f"שגיאת מערכת: {e}")
+                # שליחת הודעה
+                # ננסה לחלץ טלפון מהשדה address או שנניח שהוא שמור שם
+                raw_address = row.iloc[0]['address']
+                # הנחה: הטלפון נמצא אחרי המילה "טלפון:" או בסוף המחרוזת
+                # כאן אנחנו שולחים את כל הסטרינג לבוט שינסה לנקות אותו
+                msg = f"היי {row.iloc[0]['customer_name']}! ההזמנה (#{order_id}) אושרה ויצאה לדרך. זמן משוער: {delivery_time}. תודה!"
+                
+                # חילוץ מספר הטלפון מתוך שדה הכתובת (אם שמרת אותו שם כפי שעשינו בקוד הבוט)
+                phone_part = raw_address.split("טלפון:")[-1].strip() if "טלפון:" in raw_address else raw_address
+                
+                if notify_customer(phone_part, msg):
+                    st.success(f"הזמנה {order_id} אושרה והודעה נשלחה!")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.warning("ההזמנה אושרה ביומן, אבל לא הצלחתי לשלוח וואטסאפ.")
+            else:
+                st.error("לא מצאתי הזמנה עם המספר הזה.")
+        except Exception as e:
+            st.error(f"שגיאה: {e}")
+
+# --- טאב 2: ניהול מלאי ---
+with tab2:
+    st.header("עדכון מוצרים ומחירים")
+    
+    conn = get_db_connection()
+    products_df = pd.read_sql("SELECT id, name, price, stock FROM products ORDER BY name", conn)
+    conn.close()
+    
+    # טבלה עריכה (Data Editor)
+    edited_df = st.data_editor(products_df, num_rows="dynamic", key="inventory_editor")
+    
+    if st.button("💾 שמור שינויים במלאי"):
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            
+            # לולאה לשמירת השינויים (פשוט מוחקים ומכניסים מחדש או מעדכנים - כאן נלך על פשוט)
+            # בשיטות מתקדמות משתמשים ב-UPSERT, כאן נעשה עדכון לכל שורה ששונתה
+            # לצורך הפשטות בקוד הזה: המשתמש צריך לעדכן ב-SQL או שנבנה לוגיקה מורכבת.
+            # נעשה משהו פשוט: נעדכן מחירים ומלאי לפי ID
+            
+            for index, row in edited_df.iterrows():
+                cur.execute(
+                    "UPDATE products SET price = %s, stock = %s, name = %s WHERE id = %s",
+                    (row['price'], row['stock'], row['name'], row['id'])
+                )
+                
+            conn.commit()
+            conn.close()
+            st.success("המלאי עודכן בהצלחה!")
+            time.sleep(1)
+            st.rerun()
+        except Exception as e:
+            st.error(f"שגיאה בשמירה: {e}")
+
+# --- טאב 3: צ'אט לקוחות (סימולציה) ---
+with tab3:
+    st.subheader("בדיקת הזמנה דרך האתר (כמו לקוח)")
+    
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    if prompt := st.chat_input("מה תרצו להזמין?"):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+        
+        # לוגיקה של Gemini
+        inventory = get_inventory_for_ai()
+        
+        # המרת היסטוריה
+        gemini_hist = []
+        for m in st.session_state.messages[:-1]:
+            role = "model" if m["role"] == "assistant" else "user"
+            gemini_hist.append({"role": role, "parts": [m["content"]]})
+            
+        model = genai.GenerativeModel('gemini-1.5-flash', system_instruction=f"אתה מוכר במכולת. המלאי: {inventory}. כשלקוח נותן שם, כתובת ומוצרים, כתוב בסוף: FINALIZE_ORDER")
+        chat = model.start_chat(history=gemini_hist)
+        
+        try:
+            response = chat.send_message(prompt)
+            bot_text = response.text
+            
+            with st.chat_message("assistant"):
+                st.markdown(bot_text.replace("FINALIZE_ORDER", ""))
+            
+            st.session_state.messages.append({"role": "assistant", "content": bot_text})
+            
+            if "FINALIZE_ORDER" in bot_text:
+                full_chat = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages])
+                if save_order_from_chat(full_chat):
+                    st.balloons()
+                    st.success("ההזמנה נשלחה למערכת בהצלחה!")
+        except Exception as e:
+            st.error(f"שגיאת AI: {e}")
