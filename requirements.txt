@@ -1,7 +1,6 @@
 flask
-streamlit
-gunicorn
 requests
 psycopg2-binary
-groq
+google-generativeai
+streamlit
 pandas
