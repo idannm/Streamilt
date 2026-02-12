@@ -126,6 +126,20 @@ st.markdown("""
         background-color: #353555 !important;
     }
     
+    /* סרגל חיפוש מיוחד */
+    .stTextInput>div>div>input[placeholder*="חפש"] {
+        background: linear-gradient(135deg, #2d2d44 0%, #353555 100%) !important;
+        border: 2px solid #667eea !important;
+        padding: 14px 20px !important;
+        font-size: 17px !important;
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.2) !important;
+    }
+    
+    .stTextInput>div>div>input[placeholder*="חפש"]:focus {
+        border-color: #4facfe !important;
+        box-shadow: 0 4px 20px rgba(79, 172, 254, 0.4) !important;
+    }
+    
     /* תוויות שדות */
     .stTextInput>label, 
     .stSelectbox>label,
@@ -425,13 +439,29 @@ tab1, tab2, tab3, tab4 = st.tabs(["📦 הזמנות לטיפול", "✅ היס�
 with tab1:
     st.markdown(f"### 📦 הזמנות חדשות - {current_order_count} ממתינות")
     
+    # סרגל חיפוש
+    search_pending = st.text_input(
+        "🔍 חפש הזמנה",
+        placeholder="חפש לפי שם לקוח, מוצרים או מספר הזמנה...",
+        key="search_pending"
+    )
+    
     conn = get_db_connection()
     pending_df = pd.read_sql(
         "SELECT id, customer_name, items, address, created_at FROM orders WHERE status = 'ממתין לאישור' ORDER BY created_at DESC", 
         conn
     )
     conn.close()
-
+    
+    # סינון לפי חיפוש
+    if search_pending:
+        pending_df = pending_df[
+            pending_df['customer_name'].str.contains(search_pending, case=False, na=False) |
+            pending_df['items'].str.contains(search_pending, case=False, na=False) |
+            pending_df['id'].astype(str).str.contains(search_pending, case=False, na=False)
+        ]
+        st.info(f"🔍 נמצאו {len(pending_df)} תוצאות עבור: '{search_pending}'")
+    
     if not pending_df.empty:
         # לולאה על כל הזמנה - כל הזמנה בכרטיס משלה
         for idx, row in pending_df.iterrows():
@@ -560,12 +590,28 @@ with tab1:
 with tab2:
     st.markdown("### ✅ הזמנות שאושרו")
     
+    # סרגל חיפוש
+    search_approved = st.text_input(
+        "🔍 חפש בהיסטוריה",
+        placeholder="חפש לפי שם לקוח, מוצרים או מספר הזמנה...",
+        key="search_approved"
+    )
+    
     conn = get_db_connection()
     approved_df = pd.read_sql(
         "SELECT id, customer_name, items, delivery_time, approved_at FROM orders WHERE status='אושר' ORDER BY approved_at DESC LIMIT 50", 
         conn
     )
     conn.close()
+    
+    # סינון לפי חיפוש
+    if search_approved:
+        approved_df = approved_df[
+            approved_df['customer_name'].str.contains(search_approved, case=False, na=False) |
+            approved_df['items'].str.contains(search_approved, case=False, na=False) |
+            approved_df['id'].astype(str).str.contains(search_approved, case=False, na=False)
+        ]
+        st.info(f"🔍 נמצאו {len(approved_df)} תוצאות עבור: '{search_approved}'")
     
     if not approved_df.empty:
         st.dataframe(
@@ -615,12 +661,29 @@ with tab2:
 with tab3:
     st.markdown("### ❌ הזמנות מבוטלות")
     
+    # סרגל חיפוש
+    search_cancelled = st.text_input(
+        "🔍 חפש בהזמנות מבוטלות",
+        placeholder="חפש לפי שם לקוח, מוצרים או סיבת ביטול...",
+        key="search_cancelled"
+    )
+    
     conn = get_db_connection()
     cancelled_df = pd.read_sql(
         "SELECT id, customer_name, items, cancellation_reason, created_at FROM orders WHERE status='בוטל' ORDER BY created_at DESC LIMIT 50", 
         conn
     )
     conn.close()
+    
+    # סינון לפי חיפוש
+    if search_cancelled:
+        cancelled_df = cancelled_df[
+            cancelled_df['customer_name'].str.contains(search_cancelled, case=False, na=False) |
+            cancelled_df['items'].str.contains(search_cancelled, case=False, na=False) |
+            cancelled_df['cancellation_reason'].str.contains(search_cancelled, case=False, na=False) |
+            cancelled_df['id'].astype(str).str.contains(search_cancelled, case=False, na=False)
+        ]
+        st.info(f"🔍 נמצאו {len(cancelled_df)} תוצאות עבור: '{search_cancelled}'")
     
     if not cancelled_df.empty:
         st.dataframe(
@@ -674,9 +737,26 @@ with tab4:
     
     # תת-טאב 1: רשימת מוצרים
     with subtab1:
+        # סרגל חיפוש
+        search_products = st.text_input(
+            "🔍 חפש מוצר",
+            placeholder="חפש לפי שם מוצר...",
+            key="search_products"
+        )
+        
         conn = get_db_connection()
         df_p = pd.read_sql("SELECT id, name, price, stock FROM products ORDER BY name", conn)
         conn.close()
+        
+        # סינון לפי חיפוש
+        if search_products:
+            df_p = df_p[
+                df_p['name'].str.contains(search_products, case=False, na=False) |
+                df_p['id'].astype(str).str.contains(search_products, case=False, na=False)
+            ]
+            st.info(f"🔍 נמצאו {len(df_p)} מוצרים עבור: '{search_products}'")
+        else:
+            st.info(f"📦 סך הכל {len(df_p)} מוצרים במערכת")
         
         if not df_p.empty:
             # הצגת כל מוצר בכרטיס עם אפשרות עריכה ומחיקה
