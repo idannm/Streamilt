@@ -669,47 +669,194 @@ with tab3:
 with tab4:
     st.markdown("### 📦 ניהול מוצרים ומלאי")
     
-    conn = get_db_connection()
-    df_p = pd.read_sql("SELECT id, name, price, stock FROM products ORDER BY name", conn)
-    conn.close()
+    # תת-טאבים: רשימת מוצרים | הוספת מוצר חדש
+    subtab1, subtab2 = st.tabs(["📋 רשימת מוצרים", "➕ הוסף מוצר חדש"])
     
-    st.info("💡 ערוך ישירות בטבלה - לחץ על התא, שנה ולחץ Enter")
-    
-    edited = st.data_editor(
-        df_p, 
-        num_rows="dynamic", 
-        key="edit_inv",
-        use_container_width=True,
-        column_config={
-            "id": st.column_config.NumberColumn("מס'", disabled=True),
-            "name": st.column_config.TextColumn("שם מוצר", required=True),
-            "price": st.column_config.NumberColumn("מחיר (₪)", format="%.2f", required=True),
-            "stock": st.column_config.NumberColumn("מלאי", format="%d", required=True)
-        }
-    )
-    
-    col_save, col_space = st.columns([2, 3])
-    
-    with col_save:
-        st.markdown("<div class='approve-btn'>", unsafe_allow_html=True)
-        if st.button("💾 שמור שינויים במלאי", type="primary", use_container_width=True):
-            try:
-                conn = get_db_connection()
-                cur = conn.cursor()
-                for i, r in edited.iterrows():
-                    if pd.notna(r['id']):  # רק עדכון של שורות קיימות
-                        cur.execute(
-                            "UPDATE products SET name=%s, price=%s, stock=%s WHERE id=%s", 
-                            (r['name'], float(r['price']), int(r['stock']), int(r['id']))
+    # תת-טאב 1: רשימת מוצרים
+    with subtab1:
+        conn = get_db_connection()
+        df_p = pd.read_sql("SELECT id, name, price, stock FROM products ORDER BY name", conn)
+        conn.close()
+        
+        if not df_p.empty:
+            # הצגת כל מוצר בכרטיס עם אפשרות עריכה ומחיקה
+            st.markdown("#### 🛍️ המוצרים שלך")
+            
+            for idx, product in df_p.iterrows():
+                pid = product['id']
+                
+                # כרטיס מוצר
+                with st.container():
+                    st.markdown(f"""
+                        <div class='order-card' style='margin: 15px 0;'>
+                            <h3 style='color: #667eea !important;'>{product['name']}</h3>
+                            <p><strong>💰 מחיר:</strong> ₪{product['price']:.2f}</p>
+                            <p><strong>📦 מלאי:</strong> {product['stock']} יחידות</p>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # שורת פעולות
+                    col_edit_name, col_edit_price, col_edit_stock, col_save, col_delete = st.columns([2, 1.5, 1.5, 1, 1])
+                    
+                    with col_edit_name:
+                        new_name = st.text_input(
+                            "שם המוצר",
+                            value=product['name'],
+                            key=f"name_{pid}",
+                            label_visibility="collapsed",
+                            placeholder="שם מוצר"
                         )
-                conn.commit()
-                conn.close()
-                st.success("✅ השינויים נשמרו בהצלחה!")
-                time.sleep(1.5)
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ שגיאה בשמירה: {e}")
-        st.markdown("</div>", unsafe_allow_html=True)
+                    
+                    with col_edit_price:
+                        new_price = st.number_input(
+                            "מחיר",
+                            value=float(product['price']),
+                            min_value=0.0,
+                            step=0.5,
+                            key=f"price_{pid}",
+                            label_visibility="collapsed",
+                            format="%.2f"
+                        )
+                    
+                    with col_edit_stock:
+                        new_stock = st.number_input(
+                            "מלאי",
+                            value=int(product['stock']),
+                            min_value=0,
+                            step=1,
+                            key=f"stock_{pid}",
+                            label_visibility="collapsed"
+                        )
+                    
+                    with col_save:
+                        st.markdown("<div class='approve-btn'>", unsafe_allow_html=True)
+                        if st.button("💾", key=f"save_{pid}", use_container_width=True, help="שמור שינויים"):
+                            try:
+                                conn = get_db_connection()
+                                cur = conn.cursor()
+                                cur.execute(
+                                    "UPDATE products SET name=%s, price=%s, stock=%s WHERE id=%s",
+                                    (new_name, new_price, new_stock, pid)
+                                )
+                                conn.commit()
+                                conn.close()
+                                st.success(f"✅ המוצר '{new_name}' עודכן!")
+                                time.sleep(1)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ שגיאה: {e}")
+                        st.markdown("</div>", unsafe_allow_html=True)
+                    
+                    with col_delete:
+                        st.markdown("<div class='delete-btn'>", unsafe_allow_html=True)
+                        if st.button("🗑️", key=f"del_{pid}", use_container_width=True, help="מחק מוצר"):
+                            try:
+                                conn = get_db_connection()
+                                cur = conn.cursor()
+                                cur.execute("DELETE FROM products WHERE id=%s", (pid,))
+                                conn.commit()
+                                conn.close()
+                                st.success(f"🗑️ המוצר '{product['name']}' נמחק!")
+                                time.sleep(1)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ שגיאה במחיקה: {e}")
+                        st.markdown("</div>", unsafe_allow_html=True)
+                    
+                    st.markdown("---")
+        else:
+            st.markdown("""
+                <div class='empty-state'>
+                    <h2>📦 אין מוצרים במלאי</h2>
+                    <p>לחץ על 'הוסף מוצר חדש' כדי להתחיל</p>
+                </div>
+            """, unsafe_allow_html=True)
+    
+    # תת-טאב 2: הוספת מוצר חדש
+    with subtab2:
+        st.markdown("#### ➕ הוסף מוצר חדש למלאי")
+        
+        with st.form("add_product_form", clear_on_submit=True):
+            st.markdown("<div class='action-section'>", unsafe_allow_html=True)
+            
+            col_name, col_price, col_stock = st.columns([3, 2, 2])
+            
+            with col_name:
+                product_name = st.text_input(
+                    "🏷️ שם המוצר",
+                    placeholder="לדוגמה: חלב 3% ליטר",
+                    help="הזן שם ברור ומפורט למוצר"
+                )
+            
+            with col_price:
+                product_price = st.number_input(
+                    "💰 מחיר (₪)",
+                    min_value=0.0,
+                    step=0.5,
+                    format="%.2f",
+                    help="מחיר ליחידה"
+                )
+            
+            with col_stock:
+                product_stock = st.number_input(
+                    "📦 כמות במלאי",
+                    min_value=0,
+                    step=1,
+                    value=0,
+                    help="כמה יחידות יש במלאי"
+                )
+            
+            st.markdown("</div>", unsafe_allow_html=True)
+            
+            # כפתור הוספה
+            st.markdown("<div class='approve-btn'>", unsafe_allow_html=True)
+            submit = st.form_submit_button("➕ הוסף מוצר למערכת", use_container_width=True, type="primary")
+            st.markdown("</div>", unsafe_allow_html=True)
+            
+            if submit:
+                if not product_name:
+                    st.error("❌ חובה להזין שם מוצר!")
+                elif product_price <= 0:
+                    st.error("❌ המחיר חייב להיות גדול מ-0!")
+                else:
+                    try:
+                        conn = get_db_connection()
+                        cur = conn.cursor()
+                        cur.execute(
+                            "INSERT INTO products (name, price, stock) VALUES (%s, %s, %s)",
+                            (product_name, product_price, product_stock)
+                        )
+                        conn.commit()
+                        conn.close()
+                        
+                        st.success(f"✅ המוצר '{product_name}' נוסף בהצלחה!")
+                        st.balloons()
+                        time.sleep(2)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ שגיאה בהוספת מוצר: {e}")
+        
+        # תצוגה מקדימה של המוצרים הקיימים
+        st.markdown("---")
+        st.markdown("#### 👀 תצוגה מהירה - מוצרים קיימים")
+        
+        conn = get_db_connection()
+        preview_df = pd.read_sql("SELECT name, price, stock FROM products ORDER BY name LIMIT 10", conn)
+        conn.close()
+        
+        if not preview_df.empty:
+            st.dataframe(
+                preview_df,
+                use_container_width=True,
+                column_config={
+                    "name": "שם המוצר",
+                    "price": st.column_config.NumberColumn("מחיר (₪)", format="%.2f"),
+                    "stock": st.column_config.NumberColumn("מלאי", format="%d")
+                },
+                hide_index=True
+            )
+        else:
+            st.info("אין עדיין מוצרים במערכת")
 
 # --- Footer ---
 st.markdown("---")
