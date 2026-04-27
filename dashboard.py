@@ -211,6 +211,22 @@ st.markdown("""
         font-size: 16px;
         line-height: 1.6;
     }
+
+    /* כרטיס תלונה - צבעוני ומבליט */
+    .complaint-card {
+        background: linear-gradient(135deg, #3a2a2a 0%, #2d1f1f 100%);
+        border: 2px solid #eb3349;
+        border-radius: 15px;
+        padding: 25px;
+        margin: 20px 0;
+        box-shadow: 0 8px 25px rgba(235, 51, 73, 0.2);
+    }
+    
+    .complaint-card h3 {
+        color: #eb3349 !important;
+        margin-bottom: 20px;
+        font-size: 22px;
+    }
     
     /* אזור פעולות */
     .action-section {
@@ -251,44 +267,6 @@ st.markdown("""
         box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
     }
     
-    /* הודעות מערכת מעוצבות */
-    .stSuccess {
-        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-        border-radius: 10px;
-        padding: 15px;
-        border: none;
-    }
-    
-    .stError {
-        background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
-        border-radius: 10px;
-        padding: 15px;
-        border: none;
-    }
-    
-    .stInfo {
-        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-        border-radius: 10px;
-        padding: 15px;
-        border: none;
-    }
-    
-    /* כרטיסי מטריקה */
-    div[data-testid="stMetric"] {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-radius: 15px;
-        padding: 20px;
-        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
-    }
-    
-    /* חוצץ מעוצב */
-    hr {
-        border: none;
-        height: 2px;
-        background: linear-gradient(90deg, transparent, #667eea, transparent);
-        margin: 30px 0;
-    }
-    
     /* אזור ריק מעוצב */
     .empty-state {
         text-align: center;
@@ -307,14 +285,6 @@ st.markdown("""
     .empty-state p {
         font-size: 20px;
         color: #a0a0c0;
-    }
-    
-    /* כפתור קטן בתוך כרטיס */
-    .inline-delete-btn button {
-        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%) !important;
-        padding: 8px 16px !important;
-        font-size: 13px !important;
-        border-radius: 8px !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -421,7 +391,6 @@ with col_header3:
 # בדיקת הזמנות חדשות
 current_order_count = check_new_orders()
 
-# התראה על הזמנה חדשה
 if current_order_count > st.session_state.last_order_count and st.session_state.last_order_count > 0:
     st.markdown(f"""
         <div class='new-order-alert'>
@@ -432,14 +401,13 @@ if current_order_count > st.session_state.last_order_count and st.session_state.
 
 st.session_state.last_order_count = current_order_count
 
-# Tabs
-tab1, tab2, tab3, tab4 = st.tabs(["📦 הזמנות לטיפול", "✅ היסטוריה", "❌ מבוטלות", "🏪 מלאי"])
+# הוספנו פה את הטאב של התלונות
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📦 הזמנות לטיפול", "⚠️ תלונות", "✅ היסטוריה", "❌ מבוטלות", "🏪 מלאי"])
 
 # --- טאב 1: הזמנות לטיפול ---
 with tab1:
     st.markdown(f"### 📦 הזמנות חדשות - {current_order_count} ממתינות")
     
-    # סרגל חיפוש
     search_pending = st.text_input(
         "🔍 חפש הזמנה",
         placeholder="חפש לפי שם לקוח, מוצרים או מספר הזמנה...",
@@ -447,13 +415,13 @@ with tab1:
     )
     
     conn = get_db_connection()
+    # הוספנו את order_type לשאילתה
     pending_df = pd.read_sql(
-        "SELECT id, customer_name, items, address, created_at FROM orders WHERE status = 'ממתין לאישור' ORDER BY created_at DESC", 
+        "SELECT id, customer_name, items, address, order_type, created_at FROM orders WHERE status = 'ממתין לאישור' ORDER BY created_at DESC", 
         conn
     )
     conn.close()
     
-    # סינון לפי חיפוש
     if search_pending:
         pending_df = pending_df[
             pending_df['customer_name'].str.contains(search_pending, case=False, na=False) |
@@ -463,31 +431,34 @@ with tab1:
         st.info(f"🔍 נמצאו {len(pending_df)} תוצאות עבור: '{search_pending}'")
     
     if not pending_df.empty:
-        # לולאה על כל הזמנה - כל הזמנה בכרטיס משלה
         for idx, row in pending_df.iterrows():
             oid = row['id']
+            # נבדוק אם זה משלוח או איסוף
+            order_type = row.get('order_type', 'משלוח')
+            type_icon = "🛒 איסוף עצמי" if order_type == 'איסוף עצמי' else "🛵 משלוח"
             
-            # כרטיס הזמנה עם פרטים וכפתורי פעולה
             st.markdown(f"""
                 <div class='order-card'>
                     <h3>📋 הזמנה #{oid}</h3>
                     <p><strong>👤 לקוח:</strong> {row['customer_name']}</p>
-                    <p><strong>🛒 מוצרים:</strong> {row['items']}</p>
-                    <p><strong>📍 פרטים:</strong> {row['address']}</p>
+                    <p><strong>🛍️ מוצרים:</strong> {row['items']}</p>
+                    <p><strong>🚚 סוג:</strong> <span style="color:#feca57; font-weight:bold;">{type_icon}</span></p>
+                    <p><strong>📍 פרטים/כתובת:</strong> {row['address']}</p>
                     <p><strong>🕐 נכנסה:</strong> {row['created_at'].strftime('%d/%m/%Y %H:%M:%S')}</p>
                 </div>
             """, unsafe_allow_html=True)
             
-            # שורת פעולות עבור ההזמנה הזו
             col_time, col_approve, col_cancel, col_delete = st.columns([2, 2, 2, 1])
             
             with col_time:
+                # שינוי המלל בהתאם לאיסוף או משלוח
+                placeholder_text = "מתי מוכן לאיסוף?" if order_type == 'איסוף עצמי' else "זמן הגעה משוער"
                 time_est = st.text_input(
-                    "⏱️ זמן הגעה", 
+                    f"⏱️ {placeholder_text}", 
                     value="20 דקות",
                     key=f"time_{oid}",
                     label_visibility="collapsed",
-                    placeholder="לדוגמה: 20 דקות"
+                    placeholder=placeholder_text
                 )
             
             with col_approve:
@@ -503,7 +474,11 @@ with tab1:
                         conn.commit()
                         conn.close()
                         
-                        msg = f"היי {row['customer_name']}! ההזמנה (#{oid}) אושרה ✅\n🛒 מוצרים: {row['items']}\n🛵 זמן הגעה משוער: {time_est}.\nתודה!"
+                        # הודעה מותאמת אישית ללקוח לפי סוג ההזמנה
+                        if order_type == 'איסוף עצמי':
+                            msg = f"היי {row['customer_name']}! ההזמנה אושרה ✅\n🛒 מוצרים: {row['items']}\n🛍️ ההזמנה תהיה מוכנה לאיסוף אצלנו בעוד: {time_est}.\nתודה!"
+                        else:
+                            msg = f"היי {row['customer_name']}! ההזמנה אושרה ✅\n🛒 מוצרים: {row['items']}\n🛵 זמן הגעה משוער: {time_est}.\nתודה!"
                         
                         if notify_customer(row['address'], msg):
                             st.success("✅ ההזמנה אושרה!")
@@ -513,7 +488,7 @@ with tab1:
                         time.sleep(1.5)
                         st.rerun()
                     else:
-                        st.error("הזן זמן הגעה")
+                        st.error("הזן זמן")
                 st.markdown("</div>", unsafe_allow_html=True)
             
             with col_cancel:
@@ -531,27 +506,20 @@ with tab1:
                         st.rerun()
                 st.markdown("</div>", unsafe_allow_html=True)
             
-            # תיבת ביטול מורחבת (אם נלחץ על כפתור ביטול)
             if st.session_state.get(f'show_cancel_{oid}', False):
                 with st.container():
                     st.markdown("---")
                     st.markdown("#### 🔴 ביטול הזמנה")
                     
                     col_reason, col_confirm = st.columns([3, 1])
-                    
                     with col_reason:
                         reason = st.selectbox(
                             "סיבת הביטול:", 
                             ["חוסר במלאי", "כתובת שגויה", "לקוח לא זמין", "אחר"],
                             key=f"reason_select_{oid}"
                         )
-                        
                         if reason == "אחר":
-                            custom_reason = st.text_input(
-                                "פרט את הסיבה:", 
-                                key=f"custom_reason_{oid}",
-                                placeholder="הסבר קצר ללקוח"
-                            )
+                            custom_reason = st.text_input("פרט את הסיבה:", key=f"custom_reason_{oid}", placeholder="הסבר קצר ללקוח")
                             final_reason = custom_reason if custom_reason else "לא צוינה סיבה"
                         else:
                             final_reason = reason
@@ -568,7 +536,7 @@ with tab1:
                             conn.commit()
                             conn.close()
                             
-                            msg = f"היי {row['customer_name']}, ההזמנה (#{oid}) בוטלה ❌\nסיבה: {final_reason}.\nמצטערים על אי הנוחות."
+                            msg = f"היי {row['customer_name']}, ההזמנה בוטלה ❌\nסיבה: {final_reason}.\nמצטערים על אי הנוחות."
                             notify_customer(row['address'], msg)
                             
                             st.error("❌ ההזמנה בוטלה")
@@ -576,7 +544,6 @@ with tab1:
                             time.sleep(1.5)
                             st.rerun()
                         st.markdown("</div>", unsafe_allow_html=True)
-            
             st.markdown("---")
     else:
         st.markdown("""
@@ -586,16 +553,55 @@ with tab1:
             </div>
         """, unsafe_allow_html=True)
 
-# --- טאב 2: היסטוריה ---
+# --- טאב 2: תלונות ---
 with tab2:
-    st.markdown("### ✅ הזמנות שאושרו")
+    st.markdown("### ⚠️ תלונות ופניות פתוחות")
     
-    # סרגל חיפוש
-    search_approved = st.text_input(
-        "🔍 חפש בהיסטוריה",
-        placeholder="חפש לפי שם לקוח, מוצרים או מספר הזמנה...",
-        key="search_approved"
-    )
+    try:
+        conn = get_db_connection()
+        comp_df = pd.read_sql("SELECT * FROM complaints WHERE status = 'פתוח' ORDER BY created_at DESC", conn)
+        conn.close()
+        
+        if not comp_df.empty:
+            for i, row in comp_df.iterrows():
+                st.markdown(f"""
+                <div class='complaint-card'>
+                    <h3>⚠️ פנייה מלקוח: {row['customer_name']}</h3>
+                    <p><strong>📱 טלפון:</strong> {row['phone']}</p>
+                    <p><strong>📝 פירוט התלונה:</strong> {row['description']}</p>
+                    <p><strong>🕒 נתקבל ב:</strong> {row['created_at'].strftime('%d/%m/%Y %H:%M')}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # כפתור לסגירת התלונה
+                col_mark, _ = st.columns([1, 4])
+                with col_mark:
+                    st.markdown("<div class='approve-btn'>", unsafe_allow_html=True)
+                    if st.button("✅ סומן כטופל", key=f"comp_{row['id']}", use_container_width=True):
+                        conn = get_db_connection()
+                        cur = conn.cursor()
+                        cur.execute("UPDATE complaints SET status = 'טופל' WHERE id = %s", (row['id'],))
+                        conn.commit()
+                        conn.close()
+                        st.success("התלונה נסגרה בהצלחה!")
+                        time.sleep(1)
+                        st.rerun()
+                    st.markdown("</div>", unsafe_allow_html=True)
+                st.markdown("---")
+        else:
+            st.markdown("""
+                <div class='empty-state'>
+                    <h2>🍯 הכל דבש!</h2>
+                    <p>אין תלונות פתוחות כרגע מלקוחות.</p>
+                </div>
+            """, unsafe_allow_html=True)
+    except Exception as e:
+        st.error("הייתה בעיה בטעינת התלונות. האם הרצת את פקודת יצירת הטבלה ב-SQL?")
+
+# --- טאב 3: היסטוריה ---
+with tab3:
+    st.markdown("### ✅ הזמנות שאושרו")
+    search_approved = st.text_input("🔍 חפש בהיסטוריה", placeholder="חפש...", key="search_approved")
     
     conn = get_db_connection()
     approved_df = pd.read_sql(
@@ -603,15 +609,6 @@ with tab2:
         conn
     )
     conn.close()
-    
-    # סינון לפי חיפוש
-    if search_approved:
-        approved_df = approved_df[
-            approved_df['customer_name'].str.contains(search_approved, case=False, na=False) |
-            approved_df['items'].str.contains(search_approved, case=False, na=False) |
-            approved_df['id'].astype(str).str.contains(search_approved, case=False, na=False)
-        ]
-        st.info(f"🔍 נמצאו {len(approved_df)} תוצאות עבור: '{search_approved}'")
     
     if not approved_df.empty:
         st.dataframe(
@@ -621,69 +618,23 @@ with tab2:
                 "id": st.column_config.NumberColumn("מס'", format="%d"),
                 "customer_name": "לקוח",
                 "items": "מוצרים",
-                "delivery_time": "זמן משלוח",
+                "delivery_time": "זמן מוערך",
                 "approved_at": st.column_config.DatetimeColumn("אושר בשעה", format="DD/MM/YYYY HH:mm")
             },
             hide_index=True
         )
-        
-        st.markdown("---")
-        st.markdown("#### 🗑️ מחיקת הזמנות מאושרות")
-        
-        # בחירת הזמנה למחיקה
-        col_select, col_delete_btn = st.columns([3, 1])
-        
-        with col_select:
-            delete_id = st.selectbox(
-                "בחר הזמנה למחיקה:",
-                approved_df['id'].tolist(),
-                format_func=lambda x: f"הזמנה #{x} - {approved_df[approved_df['id']==x].iloc[0]['customer_name']} - {approved_df[approved_df['id']==x].iloc[0]['approved_at'].strftime('%d/%m %H:%M')}"
-            )
-        
-        with col_delete_btn:
-            st.markdown("<div class='delete-btn'>", unsafe_allow_html=True)
-            if st.button("🗑️ מחק הזמנה", use_container_width=True, key="delete_approved"):
-                if delete_order(delete_id):
-                    st.success(f"🗑️ הזמנה #{delete_id} נמחקה מההיסטוריה")
-                    time.sleep(1.5)
-                    st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
-        
     else:
-        st.markdown("""
-            <div class='empty-state'>
-                <h2>📋 אין עדיין היסטוריה</h2>
-                <p>הזמנות שאושרו יופיעו כאן</p>
-            </div>
-        """, unsafe_allow_html=True)
+        st.info("אין עדיין היסטוריה")
 
-# --- טאב 3: מבוטלות ---
-with tab3:
+# --- טאב 4: מבוטלות ---
+with tab4:
     st.markdown("### ❌ הזמנות מבוטלות")
-    
-    # סרגל חיפוש
-    search_cancelled = st.text_input(
-        "🔍 חפש בהזמנות מבוטלות",
-        placeholder="חפש לפי שם לקוח, מוצרים או סיבת ביטול...",
-        key="search_cancelled"
-    )
-    
     conn = get_db_connection()
     cancelled_df = pd.read_sql(
         "SELECT id, customer_name, items, cancellation_reason, created_at FROM orders WHERE status='בוטל' ORDER BY created_at DESC LIMIT 50", 
         conn
     )
     conn.close()
-    
-    # סינון לפי חיפוש
-    if search_cancelled:
-        cancelled_df = cancelled_df[
-            cancelled_df['customer_name'].str.contains(search_cancelled, case=False, na=False) |
-            cancelled_df['items'].str.contains(search_cancelled, case=False, na=False) |
-            cancelled_df['cancellation_reason'].str.contains(search_cancelled, case=False, na=False) |
-            cancelled_df['id'].astype(str).str.contains(search_cancelled, case=False, na=False)
-        ]
-        st.info(f"🔍 נמצאו {len(cancelled_df)} תוצאות עבור: '{search_cancelled}'")
     
     if not cancelled_df.empty:
         st.dataframe(
@@ -698,74 +649,27 @@ with tab3:
             },
             hide_index=True
         )
-        
-        st.markdown("---")
-        st.markdown("#### 🗑️ מחיקת הזמנות מבוטלות")
-        
-        # בחירת הזמנה למחיקה
-        col_select_c, col_delete_btn_c = st.columns([3, 1])
-        
-        with col_select_c:
-            delete_id_c = st.selectbox(
-                "בחר הזמנה למחיקה:",
-                cancelled_df['id'].tolist(),
-                format_func=lambda x: f"הזמנה #{x} - {cancelled_df[cancelled_df['id']==x].iloc[0]['customer_name']} - {cancelled_df[cancelled_df['id']==x].iloc[0]['cancellation_reason']}"
-            )
-        
-        with col_delete_btn_c:
-            st.markdown("<div class='delete-btn'>", unsafe_allow_html=True)
-            if st.button("🗑️ מחק לצמיתות", use_container_width=True, key="delete_cancelled"):
-                if delete_order(delete_id_c):
-                    st.success(f"🗑️ הזמנה #{delete_id_c} נמחקה לצמיתות")
-                    time.sleep(1.5)
-                    st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
     else:
-        st.markdown("""
-            <div class='empty-state'>
-                <h2>✨ אין הזמנות מבוטלות</h2>
-                <p>כל ההזמנות מטופלות כראוי 👍</p>
-            </div>
-        """, unsafe_allow_html=True)
+        st.info("אין הזמנות מבוטלות")
 
-# --- טאב 4: מלאי ---
-with tab4:
+# --- טאב 5: מלאי ---
+with tab5:
     st.markdown("### 📦 ניהול מוצרים ומלאי")
     
-    # תת-טאבים: רשימת מוצרים | הוספת מוצר חדש
     subtab1, subtab2 = st.tabs(["📋 רשימת מוצרים", "➕ הוסף מוצר חדש"])
     
-    # תת-טאב 1: רשימת מוצרים
     with subtab1:
-        # סרגל חיפוש
-        search_products = st.text_input(
-            "🔍 חפש מוצר",
-            placeholder="חפש לפי שם מוצר...",
-            key="search_products"
-        )
-        
+        search_products = st.text_input("🔍 חפש מוצר", placeholder="חפש לפי שם מוצר...", key="search_products")
         conn = get_db_connection()
         df_p = pd.read_sql("SELECT id, name, price, stock FROM products ORDER BY name", conn)
         conn.close()
         
-        # סינון לפי חיפוש
         if search_products:
-            df_p = df_p[
-                df_p['name'].str.contains(search_products, case=False, na=False) |
-                df_p['id'].astype(str).str.contains(search_products, case=False, na=False)
-            ]
-            st.info(f"🔍 נמצאו {len(df_p)} מוצרים עבור: '{search_products}'")
-        else:
-            st.info(f"📦 סך הכל {len(df_p)} מוצרים במערכת")
+            df_p = df_p[df_p['name'].str.contains(search_products, case=False, na=False)]
         
         if not df_p.empty:
-            # הצגת כל מוצר בכרטיס עם אפשרות עריכה ומחיקה
-            st.markdown("#### 🛍️ המוצרים שלך")
-            
             for idx, product in df_p.iterrows():
                 pid = product['id']
-                
-                # כרטיס מוצר
                 with st.container():
                     st.markdown(f"""
                         <div class='order-card' style='margin: 15px 0;'>
@@ -775,173 +679,71 @@ with tab4:
                         </div>
                     """, unsafe_allow_html=True)
                     
-                    # שורת פעולות
                     col_edit_name, col_edit_price, col_edit_stock, col_save, col_delete = st.columns([2, 1.5, 1.5, 1, 1])
-                    
                     with col_edit_name:
-                        new_name = st.text_input(
-                            "שם המוצר",
-                            value=product['name'],
-                            key=f"name_{pid}",
-                            label_visibility="collapsed",
-                            placeholder="שם מוצר"
-                        )
-                    
+                        new_name = st.text_input("שם", value=product['name'], key=f"name_{pid}", label_visibility="collapsed")
                     with col_edit_price:
-                        new_price = st.number_input(
-                            "מחיר",
-                            value=float(product['price']),
-                            min_value=0.0,
-                            step=0.5,
-                            key=f"price_{pid}",
-                            label_visibility="collapsed",
-                            format="%.2f"
-                        )
-                    
+                        new_price = st.number_input("מחיר", value=float(product['price']), min_value=0.0, step=0.5, key=f"price_{pid}", label_visibility="collapsed")
                     with col_edit_stock:
-                        new_stock = st.number_input(
-                            "מלאי",
-                            value=int(product['stock']),
-                            min_value=0,
-                            step=1,
-                            key=f"stock_{pid}",
-                            label_visibility="collapsed"
-                        )
+                        new_stock = st.number_input("מלאי", value=int(product['stock']), min_value=0, step=1, key=f"stock_{pid}", label_visibility="collapsed")
                     
                     with col_save:
                         st.markdown("<div class='approve-btn'>", unsafe_allow_html=True)
-                        if st.button("💾", key=f"save_{pid}", use_container_width=True, help="שמור שינויים"):
-                            try:
-                                conn = get_db_connection()
-                                cur = conn.cursor()
-                                cur.execute(
-                                    "UPDATE products SET name=%s, price=%s, stock=%s WHERE id=%s",
-                                    (new_name, new_price, new_stock, pid)
-                                )
-                                conn.commit()
-                                conn.close()
-                                st.success(f"✅ המוצר '{new_name}' עודכן!")
-                                time.sleep(1)
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"❌ שגיאה: {e}")
+                        if st.button("💾", key=f"save_{pid}", use_container_width=True):
+                            conn = get_db_connection()
+                            cur = conn.cursor()
+                            cur.execute("UPDATE products SET name=%s, price=%s, stock=%s WHERE id=%s", (new_name, new_price, new_stock, pid))
+                            conn.commit()
+                            conn.close()
+                            st.success("✅")
+                            time.sleep(0.5)
+                            st.rerun()
                         st.markdown("</div>", unsafe_allow_html=True)
                     
                     with col_delete:
                         st.markdown("<div class='delete-btn'>", unsafe_allow_html=True)
-                        if st.button("🗑️", key=f"del_{pid}", use_container_width=True, help="מחק מוצר"):
-                            try:
-                                conn = get_db_connection()
-                                cur = conn.cursor()
-                                cur.execute("DELETE FROM products WHERE id=%s", (pid,))
-                                conn.commit()
-                                conn.close()
-                                st.success(f"🗑️ המוצר '{product['name']}' נמחק!")
-                                time.sleep(1)
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"❌ שגיאה במחיקה: {e}")
+                        if st.button("🗑️", key=f"del_{pid}", use_container_width=True):
+                            conn = get_db_connection()
+                            cur = conn.cursor()
+                            cur.execute("DELETE FROM products WHERE id=%s", (pid,))
+                            conn.commit()
+                            conn.close()
+                            st.success("🗑️")
+                            time.sleep(0.5)
+                            st.rerun()
                         st.markdown("</div>", unsafe_allow_html=True)
-                    
                     st.markdown("---")
-        else:
-            st.markdown("""
-                <div class='empty-state'>
-                    <h2>📦 אין מוצרים במלאי</h2>
-                    <p>לחץ על 'הוסף מוצר חדש' כדי להתחיל</p>
-                </div>
-            """, unsafe_allow_html=True)
-    
-    # תת-טאב 2: הוספת מוצר חדש
+
     with subtab2:
-        st.markdown("#### ➕ הוסף מוצר חדש למלאי")
-        
         with st.form("add_product_form", clear_on_submit=True):
             st.markdown("<div class='action-section'>", unsafe_allow_html=True)
-            
             col_name, col_price, col_stock = st.columns([3, 2, 2])
-            
             with col_name:
-                product_name = st.text_input(
-                    "🏷️ שם המוצר",
-                    placeholder="לדוגמה: חלב 3% ליטר",
-                    help="הזן שם ברור ומפורט למוצר"
-                )
-            
+                product_name = st.text_input("🏷️ שם המוצר", placeholder="לדוגמה: חלב 3% ליטר")
             with col_price:
-                product_price = st.number_input(
-                    "💰 מחיר (₪)",
-                    min_value=0.0,
-                    step=0.5,
-                    format="%.2f",
-                    help="מחיר ליחידה"
-                )
-            
+                product_price = st.number_input("💰 מחיר (₪)", min_value=0.0, step=0.5, format="%.2f")
             with col_stock:
-                product_stock = st.number_input(
-                    "📦 כמות במלאי",
-                    min_value=0,
-                    step=1,
-                    value=0,
-                    help="כמה יחידות יש במלאי"
-                )
-            
+                product_stock = st.number_input("📦 כמות במלאי", min_value=0, step=1, value=0)
             st.markdown("</div>", unsafe_allow_html=True)
             
-            # כפתור הוספה
             st.markdown("<div class='approve-btn'>", unsafe_allow_html=True)
-            submit = st.form_submit_button("➕ הוסף מוצר למערכת", use_container_width=True, type="primary")
+            submit = st.form_submit_button("➕ הוסף מוצר למערכת", use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
             
-            if submit:
-                if not product_name:
-                    st.error("❌ חובה להזין שם מוצר!")
-                elif product_price <= 0:
-                    st.error("❌ המחיר חייב להיות גדול מ-0!")
-                else:
-                    try:
-                        conn = get_db_connection()
-                        cur = conn.cursor()
-                        cur.execute(
-                            "INSERT INTO products (name, price, stock) VALUES (%s, %s, %s)",
-                            (product_name, product_price, product_stock)
-                        )
-                        conn.commit()
-                        conn.close()
-                        
-                        st.success(f"✅ המוצר '{product_name}' נוסף בהצלחה!")
-                        st.balloons()
-                        time.sleep(2)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ שגיאה בהוספת מוצר: {e}")
-        
-        # תצוגה מקדימה של המוצרים הקיימים
-        st.markdown("---")
-        st.markdown("#### 👀 תצוגה מהירה - מוצרים קיימים")
-        
-        conn = get_db_connection()
-        preview_df = pd.read_sql("SELECT name, price, stock FROM products ORDER BY name LIMIT 10", conn)
-        conn.close()
-        
-        if not preview_df.empty:
-            st.dataframe(
-                preview_df,
-                use_container_width=True,
-                column_config={
-                    "name": "שם המוצר",
-                    "price": st.column_config.NumberColumn("מחיר (₪)", format="%.2f"),
-                    "stock": st.column_config.NumberColumn("מלאי", format="%d")
-                },
-                hide_index=True
-            )
-        else:
-            st.info("אין עדיין מוצרים במערכת")
+            if submit and product_name and product_price > 0:
+                conn = get_db_connection()
+                cur = conn.cursor()
+                cur.execute("INSERT INTO products (name, price, stock) VALUES (%s, %s, %s)", (product_name, product_price, product_stock))
+                conn.commit()
+                conn.close()
+                st.success(f"✅ המוצר '{product_name}' נוסף בהצלחה!")
+                time.sleep(1)
+                st.rerun()
 
 # --- Footer ---
 st.markdown("---")
 st.markdown("""
     <div style='text-align: center; padding: 20px; color: #a0a0c0;'>
-        <p>🛒 מערכת ניהול מכולת מתקדמת | גרסה 2.0</p>
+        <p>🛒 מערכת ניהול מכולת מתקדמת | גרסה 3.0</p>
     </div>
 """, unsafe_allow_html=True)
