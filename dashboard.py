@@ -6,907 +6,744 @@ import requests
 import time
 from datetime import datetime
 
-# ─────────────────────────────────────
-# הגדרות
-# ─────────────────────────────────────
-st.set_page_config(
-    page_title="המכולת של הצדיק",
-    page_icon="🛒",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+# --- 1. הגדרות ---
+st.set_page_config(page_title="ניהול מכולת - הזוג", page_icon="🛒", layout="wide", initial_sidebar_state="collapsed")
 
-DB_URL          = os.environ.get("DB_URL")
-BOT_URL         = os.environ.get("BOT_URL", "https://minimarket-ocfq.onrender.com")
+# משתני סביבה
+DB_URL = os.environ.get("DB_URL")
+BOT_URL = "https://minimarket-ocfq.onrender.com" 
 INTERNAL_SECRET = os.environ.get("INTERNAL_SECRET", "123")
-ADMIN_PASSWORD  = os.environ.get("ADMIN_PASSWORD", "12345")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "12345")
 
-# ─────────────────────────────────────
-# CSS + סאונד
-# ─────────────────────────────────────
+# --- 2. עיצוב מודרני ונגיש ---
 st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;800;900&display=swap');
-
-* { font-family: 'Heebo', sans-serif !important; }
-
-/* רקע */
-.stApp {
-    background: #0f1117;
-    color: #e8eaf0;
-    direction: rtl;
-}
-
-/* הסרת padding מיותר */
-.block-container { padding: 1.5rem 2rem 3rem !important; max-width: 100% !important; }
-section[data-testid="stSidebar"] { display: none; }
-
-/* כותרת ראשית */
-.main-header {
-    background: linear-gradient(135deg, #1a1d2e 0%, #252840 100%);
-    border: 1px solid #2e3250;
-    border-radius: 20px;
-    padding: 24px 32px;
-    margin-bottom: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.4);
-}
-.main-header h1 {
-    font-size: 28px !important;
-    font-weight: 900 !important;
-    color: #fff !important;
-    margin: 0 !important;
-    letter-spacing: -0.5px;
-}
-.main-header .subtitle {
-    color: #7c85b3;
-    font-size: 14px;
-    margin-top: 4px;
-}
-
-/* כרטיסי סטטיסטיקה */
-.stat-card {
-    background: linear-gradient(135deg, #1a1d2e 0%, #1e2135 100%);
-    border: 1px solid #2e3250;
-    border-radius: 16px;
-    padding: 20px 24px;
-    text-align: center;
-    box-shadow: 0 2px 12px rgba(0,0,0,0.3);
-    transition: all 0.2s ease;
-}
-.stat-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.4); }
-.stat-number {
-    font-size: 40px;
-    font-weight: 900;
-    line-height: 1;
-    margin-bottom: 4px;
-}
-.stat-label { font-size: 13px; color: #7c85b3; font-weight: 500; }
-.stat-pending .stat-number { color: #f59e0b; }
-.stat-delivery .stat-number { color: #3b82f6; }
-.stat-pickup .stat-number { color: #10b981; }
-.stat-complaints .stat-number { color: #ef4444; }
-
-/* התראת הזמנה */
-@keyframes slideIn {
-    from { transform: translateY(-20px); opacity: 0; }
-    to   { transform: translateY(0);     opacity: 1; }
-}
-@keyframes glow {
-    0%, 100% { box-shadow: 0 0 20px rgba(245,158,11,0.4); }
-    50%       { box-shadow: 0 0 40px rgba(245,158,11,0.8); }
-}
-.alert-banner {
-    background: linear-gradient(135deg, #92400e 0%, #78350f 100%);
-    border: 2px solid #f59e0b;
-    border-radius: 16px;
-    padding: 20px 28px;
-    margin: 16px 0;
-    text-align: center;
-    font-size: 20px;
-    font-weight: 700;
-    color: #fef3c7;
-    animation: slideIn 0.4s ease, glow 2s ease-in-out infinite;
-}
-
-/* כרטיסי הזמנה */
-.order-card {
-    background: #1a1d2e;
-    border: 1px solid #2e3250;
-    border-radius: 16px;
-    padding: 20px 24px;
-    margin: 12px 0;
-    transition: all 0.2s ease;
-    position: relative;
-    overflow: hidden;
-}
-.order-card::before {
-    content: '';
-    position: absolute;
-    top: 0; right: 0;
-    width: 4px;
-    height: 100%;
-    background: #3b82f6;
-    border-radius: 4px 0 0 4px;
-}
-.order-card.pickup::before { background: #10b981; }
-.order-card:hover { border-color: #3e4470; transform: translateX(-2px); }
-.order-card .order-id {
-    font-size: 13px;
-    color: #7c85b3;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-}
-.order-card .order-name {
-    font-size: 22px;
-    font-weight: 800;
-    color: #fff;
-    margin: 4px 0 12px;
-}
-.order-card .order-items {
-    background: #12141f;
-    border-radius: 10px;
-    padding: 10px 14px;
-    font-size: 15px;
-    color: #a0a8cc;
-    margin-bottom: 12px;
-    border: 1px solid #1e2135;
-}
-.order-meta {
-    display: flex;
-    gap: 16px;
-    flex-wrap: wrap;
-}
-.order-meta span {
-    font-size: 13px;
-    color: #6b7280;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-.badge {
-    display: inline-block;
-    padding: 4px 12px;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-}
-.badge-delivery { background: #1e3a5f; color: #60a5fa; border: 1px solid #2563eb; }
-.badge-pickup   { background: #064e3b; color: #34d399; border: 1px solid #059669; }
-.badge-new      { background: #78350f; color: #fbbf24; border: 1px solid #d97706; }
-
-/* כרטיסי תלונה */
-.complaint-card {
-    background: #1f1215;
-    border: 1px solid #7f1d1d;
-    border-radius: 16px;
-    padding: 20px 24px;
-    margin: 12px 0;
-}
-.complaint-card .complaint-name { font-size: 20px; font-weight: 800; color: #fca5a5; }
-.complaint-card .complaint-desc { color: #d1d5db; font-size: 15px; line-height: 1.6; }
-
-/* כפתורים */
-.stButton > button {
-    border-radius: 10px !important;
-    font-family: 'Heebo', sans-serif !important;
-    font-weight: 700 !important;
-    font-size: 14px !important;
-    padding: 10px 16px !important;
-    border: none !important;
-    transition: all 0.2s ease !important;
-    width: 100% !important;
-}
-
-/* כפתור ראשי (אישור) */
-div[data-btn="approve"] .stButton > button {
-    background: linear-gradient(135deg, #059669, #10b981) !important;
-    color: #fff !important;
-    box-shadow: 0 4px 12px rgba(16,185,129,0.3) !important;
-}
-div[data-btn="approve"] .stButton > button:hover {
-    background: linear-gradient(135deg, #10b981, #34d399) !important;
-    box-shadow: 0 6px 16px rgba(16,185,129,0.5) !important;
-    transform: translateY(-1px) !important;
-}
-
-/* ביטול */
-div[data-btn="cancel"] .stButton > button {
-    background: linear-gradient(135deg, #dc2626, #ef4444) !important;
-    color: #fff !important;
-    box-shadow: 0 4px 12px rgba(239,68,68,0.3) !important;
-}
-div[data-btn="cancel"] .stButton > button:hover {
-    background: linear-gradient(135deg, #ef4444, #f87171) !important;
-    transform: translateY(-1px) !important;
-}
-
-/* מחיקה */
-div[data-btn="delete"] .stButton > button {
-    background: #1e2135 !important;
-    color: #9ca3af !important;
-    border: 1px solid #2e3250 !important;
-}
-div[data-btn="delete"] .stButton > button:hover {
-    background: #7f1d1d !important;
-    color: #fca5a5 !important;
-    border-color: #991b1b !important;
-}
-
-/* רענון */
-div[data-btn="refresh"] .stButton > button {
-    background: linear-gradient(135deg, #1d4ed8, #3b82f6) !important;
-    color: #fff !important;
-    box-shadow: 0 4px 12px rgba(59,130,246,0.3) !important;
-}
-
-/* שדות קלט */
-.stTextInput > div > div > input,
-.stNumberInput > div > div > input,
-.stSelectbox > div > div > select {
-    background: #1a1d2e !important;
-    color: #e8eaf0 !important;
-    border: 1px solid #2e3250 !important;
-    border-radius: 10px !important;
-    font-family: 'Heebo', sans-serif !important;
-}
-.stTextInput > div > div > input:focus,
-.stNumberInput > div > div > input:focus {
-    border-color: #3b82f6 !important;
-    box-shadow: 0 0 0 3px rgba(59,130,246,0.15) !important;
-}
-label { color: #9ca3af !important; font-weight: 600 !important; font-size: 13px !important; }
-
-/* Tabs */
-.stTabs [data-baseweb="tab-list"] {
-    background: #1a1d2e !important;
-    border-radius: 12px !important;
-    padding: 6px !important;
-    gap: 4px !important;
-    border: 1px solid #2e3250 !important;
-}
-.stTabs [data-baseweb="tab"] {
-    background: transparent !important;
-    color: #7c85b3 !important;
-    border-radius: 8px !important;
-    font-weight: 700 !important;
-    font-size: 14px !important;
-    padding: 10px 18px !important;
-    border: none !important;
-    transition: all 0.2s !important;
-}
-.stTabs [data-baseweb="tab"]:hover { background: #252840 !important; color: #c4cbe8 !important; }
-.stTabs [aria-selected="true"] {
-    background: linear-gradient(135deg, #1d4ed8, #3b82f6) !important;
-    color: #fff !important;
-    box-shadow: 0 2px 8px rgba(59,130,246,0.4) !important;
-}
-.stTabs [data-baseweb="tab-panel"] { padding-top: 20px !important; }
-
-/* Empty state */
-.empty-state {
-    text-align: center;
-    padding: 60px 20px;
-    color: #4b5563;
-}
-.empty-state .icon { font-size: 64px; margin-bottom: 16px; }
-.empty-state h3 { color: #6b7280 !important; font-size: 20px !important; margin-bottom: 8px; }
-.empty-state p { font-size: 15px; }
-
-/* Divider */
-.divider { height: 1px; background: #1e2135; margin: 8px 0 16px; border: none; }
-
-/* Success/error */
-.stSuccess, .stError, .stWarning, .stInfo { border-radius: 10px !important; }
-
-/* טופס login */
-.login-wrap {
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-.login-card {
-    background: #1a1d2e;
-    border: 1px solid #2e3250;
-    border-radius: 24px;
-    padding: 48px 40px;
-    width: 380px;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-    text-align: center;
-}
-.login-card h2 { font-size: 28px !important; font-weight: 900 !important; color: #fff !important; margin-bottom: 8px; }
-.login-card p { color: #7c85b3; font-size: 14px; margin-bottom: 32px; }
-
-/* No session timeout — keep alive indicator */
-.keepalive { display: none; }
-
-/* RTL fix for dataframe */
-.stDataFrame { direction: ltr; }
-
-/* הסרת border מיותר מ-Streamlit */
-hr { border-color: #1e2135 !important; }
-</style>
-
-<!-- סאונדים בווב אודיו -->
-<script>
-const AudioContext = window.AudioContext || window.webkitAudioContext;
-
-function playSound(type) {
-    try {
-        const ctx = new AudioContext();
-        
-        if (type === 'delivery') {
-            // 🛵 משלוח — 3 פעימות עולות
-            [0, 0.15, 0.30].forEach((delay, i) => {
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-                osc.connect(gain); gain.connect(ctx.destination);
-                osc.frequency.value = 440 + i * 120;
-                osc.type = 'sine';
-                gain.gain.setValueAtTime(0, ctx.currentTime + delay);
-                gain.gain.linearRampToValueAtTime(0.4, ctx.currentTime + delay + 0.05);
-                gain.gain.linearRampToValueAtTime(0, ctx.currentTime + delay + 0.18);
-                osc.start(ctx.currentTime + delay);
-                osc.stop(ctx.currentTime + delay + 0.2);
-            });
-            
-        } else if (type === 'pickup') {
-            // 🛒 איסוף — צלצול כפול פשוט
-            [0, 0.25].forEach(delay => {
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-                osc.connect(gain); gain.connect(ctx.destination);
-                osc.frequency.value = 880;
-                osc.type = 'triangle';
-                gain.gain.setValueAtTime(0, ctx.currentTime + delay);
-                gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + delay + 0.04);
-                gain.gain.linearRampToValueAtTime(0, ctx.currentTime + delay + 0.2);
-                osc.start(ctx.currentTime + delay);
-                osc.stop(ctx.currentTime + delay + 0.25);
-            });
-            
-        } else if (type === 'complaint') {
-            // ⚠️ תלונה — צליל נמוך מטריד
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.connect(gain); gain.connect(ctx.destination);
-            osc.frequency.setValueAtTime(220, ctx.currentTime);
-            osc.frequency.linearRampToValueAtTime(180, ctx.currentTime + 0.5);
-            osc.type = 'sawtooth';
-            gain.gain.setValueAtTime(0.25, ctx.currentTime);
-            gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
-            osc.start(ctx.currentTime);
-            osc.stop(ctx.currentTime + 0.55);
-            
-        } else if (type === 'new_order') {
-            // 🔔 הזמנה חדשה — צלצול קופה
-            const freqs = [523, 659, 784, 1047];
-            freqs.forEach((f, i) => {
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-                osc.connect(gain); gain.connect(ctx.destination);
-                osc.frequency.value = f;
-                osc.type = 'sine';
-                const t = ctx.currentTime + i * 0.12;
-                gain.gain.setValueAtTime(0, t);
-                gain.gain.linearRampToValueAtTime(0.35, t + 0.03);
-                gain.gain.linearRampToValueAtTime(0, t + 0.25);
-                osc.start(t);
-                osc.stop(t + 0.3);
-            });
-        }
-    } catch(e) { console.log('Audio error:', e); }
-}
-
-// שמירת מצב קודם לזיהוי שינויים
-let prevState = { orders: -1, complaints: -1 };
-
-function checkForChanges() {
-    const curr = {
-        orders:     parseInt(document.getElementById('order-count-data')?.dataset?.count  ?? -1),
-        complaints: parseInt(document.getElementById('complaint-count-data')?.dataset?.count ?? -1),
-        sound:      document.getElementById('sound-trigger')?.dataset?.sound ?? ''
-    };
-    
-    if (curr.sound && curr.sound !== window._lastSound) {
-        window._lastSound = curr.sound;
-        playSound(curr.sound);
+    <style>
+    /* רקע מודרני עם גרדיאנט עדין */
+    .stApp {
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        color: #e0e0e0;
     }
     
-    if (prevState.orders >= 0 && curr.orders > prevState.orders)     playSound('new_order');
-    if (prevState.complaints >= 0 && curr.complaints > prevState.complaints) playSound('complaint');
+    /* כותרות מעוצבות */
+    h1, h2, h3 {
+        color: #ffffff !important;
+        font-weight: 700;
+        text-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    }
     
-    prevState = curr;
-}
+    /* טבלאות מודרניות */
+    div[data-testid="stDataFrame"] {
+        background: linear-gradient(135deg, #252540 0%, #2d2d44 100%);
+        border: 1px solid #404060;
+        border-radius: 15px;
+        padding: 15px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    }
+    
+    /* טקסט בטבלה */
+    div[data-testid="stDataFrame"] p {
+        color: white;
+    }
+    
+    /* כפתורים ראשיים - גרדיאנט מרשים */
+    .stButton>button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 12px;
+        transition: all 0.3s ease;
+        font-weight: 600;
+        padding: 0.75rem 1.5rem;
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        font-size: 16px;
+    }
+    .stButton>button:hover {
+        background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+        transform: translateY(-3px);
+        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+    }
+    
+    /* כפתור אישור - ירוק */
+    .approve-btn button {
+        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%) !important;
+        box-shadow: 0 4px 15px rgba(56, 239, 125, 0.4) !important;
+    }
+    .approve-btn button:hover {
+        background: linear-gradient(135deg, #38ef7d 0%, #11998e 100%) !important;
+        box-shadow: 0 6px 20px rgba(56, 239, 125, 0.6) !important;
+    }
+    
+    /* כפתור ביטול - אדום */
+    .cancel-btn button {
+        background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%) !important;
+        box-shadow: 0 4px 15px rgba(235, 51, 73, 0.4) !important;
+    }
+    .cancel-btn button:hover {
+        background: linear-gradient(135deg, #f45c43 0%, #eb3349 100%) !important;
+        box-shadow: 0 6px 20px rgba(235, 51, 73, 0.6) !important;
+    }
+    
+    /* כפתור מחיקה - כתום */
+    .delete-btn button {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%) !important;
+        box-shadow: 0 4px 15px rgba(245, 87, 108, 0.4) !important;
+        font-size: 14px !important;
+        padding: 0.5rem 1rem !important;
+    }
+    .delete-btn button:hover {
+        background: linear-gradient(135deg, #f5576c 0%, #f093fb 100%) !important;
+        box-shadow: 0 6px 20px rgba(245, 87, 108, 0.6) !important;
+    }
+    
+    /* כפתור רענון - כחול */
+    .refresh-btn button {
+        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%) !important;
+        box-shadow: 0 4px 15px rgba(79, 172, 254, 0.4) !important;
+    }
+    .refresh-btn button:hover {
+        background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%) !important;
+        box-shadow: 0 6px 20px rgba(79, 172, 254, 0.6) !important;
+    }
+    
+    /* שדות קלט מודרניים */
+    .stTextInput>div>div>input, 
+    .stSelectbox>div>div>select,
+    .stNumberInput>div>div>input {
+        background-color: #2d2d44 !important;
+        color: #ffffff !important;
+        border: 2px solid #404060 !important;
+        border-radius: 10px !important;
+        padding: 12px 16px !important;
+        font-size: 16px !important;
+        transition: all 0.3s ease !important;
+    }
+    
+    .stTextInput>div>div>input:focus,
+    .stSelectbox>div>div>select:focus,
+    .stNumberInput>div>div>input:focus {
+        border-color: #667eea !important;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2) !important;
+        background-color: #353555 !important;
+    }
+    
+    /* סרגל חיפוש מיוחד */
+    .stTextInput>div>div>input[placeholder*="חפש"] {
+        background: linear-gradient(135deg, #2d2d44 0%, #353555 100%) !important;
+        border: 2px solid #667eea !important;
+        padding: 14px 20px !important;
+        font-size: 17px !important;
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.2) !important;
+    }
+    
+    .stTextInput>div>div>input[placeholder*="חפש"]:focus {
+        border-color: #4facfe !important;
+        box-shadow: 0 4px 20px rgba(79, 172, 254, 0.4) !important;
+    }
+    
+    /* תוויות שדות */
+    .stTextInput>label, 
+    .stSelectbox>label,
+    .stNumberInput>label {
+        color: #ffffff !important;
+        font-weight: 600 !important;
+        font-size: 15px !important;
+        margin-bottom: 8px !important;
+    }
+    
+    /* תיבת התחברות מעוצבת */
+    .login-box {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 50px;
+        border-radius: 20px;
+        text-align: center;
+        box-shadow: 0 20px 60px rgba(102, 126, 234, 0.4);
+    }
+    
+    /* התראת הזמנה חדשה - אנימציה מרשימה */
+    .new-order-alert {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        color: white;
+        padding: 25px 40px;
+        border-radius: 15px;
+        text-align: center;
+        font-size: 26px;
+        font-weight: 700;
+        margin: 25px 0;
+        animation: pulse 1.5s ease-in-out infinite;
+        box-shadow: 0 8px 30px rgba(245, 87, 108, 0.5);
+    }
+    
+    @keyframes pulse {
+        0%, 100% { 
+            transform: scale(1); 
+            box-shadow: 0 8px 30px rgba(245, 87, 108, 0.5);
+        }
+        50% { 
+            transform: scale(1.03); 
+            box-shadow: 0 12px 40px rgba(245, 87, 108, 0.7);
+        }
+    }
+    
+    /* כרטיס הזמנה מודרני */
+    .order-card {
+        background: linear-gradient(135deg, #2d2d44 0%, #3a3a5a 100%);
+        border: 2px solid #505070;
+        border-radius: 15px;
+        padding: 25px;
+        margin: 20px 0;
+        box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+        transition: all 0.3s ease;
+    }
+    
+    .order-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 12px 35px rgba(0,0,0,0.4);
+    }
+    
+    .order-card h3 {
+        color: #667eea !important;
+        margin-bottom: 20px;
+        font-size: 22px;
+    }
+    
+    .order-card p {
+        margin: 12px 0;
+        font-size: 16px;
+        line-height: 1.6;
+    }
 
-// בדיקה כל שנייה
-setInterval(checkForChanges, 1000);
-
-// מניעת נעילה — ping כל 3 דקות
-setInterval(() => {
-    fetch(window.location.href, {method:'HEAD'}).catch(()=>{});
-}, 180000);
-</script>
+    /* כרטיס תלונה - צבעוני ומבליט */
+    .complaint-card {
+        background: linear-gradient(135deg, #3a2a2a 0%, #2d1f1f 100%);
+        border: 2px solid #eb3349;
+        border-radius: 15px;
+        padding: 25px;
+        margin: 20px 0;
+        box-shadow: 0 8px 25px rgba(235, 51, 73, 0.2);
+    }
+    
+    .complaint-card h3 {
+        color: #eb3349 !important;
+        margin-bottom: 20px;
+        font-size: 22px;
+    }
+    
+    /* אזור פעולות */
+    .action-section {
+        background: linear-gradient(135deg, #252540 0%, #2d2d50 100%);
+        border-radius: 15px;
+        padding: 30px;
+        margin: 20px 0;
+        box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+    }
+    
+    /* Tabs מעוצבים */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+        background: linear-gradient(135deg, #252540 0%, #2d2d50 100%);
+        padding: 15px;
+        border-radius: 15px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        background-color: #353555;
+        color: white;
+        border-radius: 10px;
+        padding: 12px 24px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        border: 2px solid transparent;
+    }
+    
+    .stTabs [data-baseweb="tab"]:hover {
+        background-color: #404070;
+        border-color: #667eea;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-color: #667eea;
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+    }
+    
+    /* אזור ריק מעוצב */
+    .empty-state {
+        text-align: center;
+        padding: 80px 40px;
+        background: linear-gradient(135deg, #252540 0%, #2d2d50 100%);
+        border-radius: 20px;
+        box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+    }
+    
+    .empty-state h2 {
+        color: #4facfe !important;
+        font-size: 32px;
+        margin-bottom: 15px;
+    }
+    
+    .empty-state p {
+        font-size: 20px;
+        color: #a0a0c0;
+    }
+    </style>
 """, unsafe_allow_html=True)
 
-# ─────────────────────────────────────
-# DB helpers
-# ─────────────────────────────────────
-def get_db():
+# --- 3. פונקציות עזר ---
+def get_db_connection():
     return psycopg2.connect(DB_URL)
 
-def run_query(sql, params=(), fetch=True):
-    conn = get_db()
+def extract_phone_id(address_field):
+    """חילוץ חכם של מזהה הוואטסאפ מהכתובת"""
     try:
-        cur = conn.cursor()
-        cur.execute(sql, params)
-        if fetch:
-            result = cur.fetchall()
-        else:
-            conn.commit()
-            result = True
-        return result
-    except Exception as e:
-        st.error(f"שגיאת DB: {e}")
-        return [] if fetch else False
-    finally:
-        conn.close()
-
-def read_df(sql, conn=None):
-    c = conn or get_db()
-    try:
-        df = pd.read_sql(sql, c)
-        if not conn:
-            c.close()
-        return df
-    except:
-        return pd.DataFrame()
-
-def extract_phone(address):
-    try:
-        if "WA_ID:" in str(address):
-            return str(address).split("WA_ID:")[-1].strip()
-        clean = str(address).replace("-","").strip()
-        if clean.startswith("0"):
-            return "972" + clean[1:]
+        if "WA_ID:" in str(address_field):
+            return str(address_field).split("WA_ID:")[-1].strip()
+        
+        clean = str(address_field).replace("WhatsApp:", "").replace("טלפון:", "").replace("-", "").strip()
+        if ":" in clean: clean = clean.split(":")[-1].strip()
+        if clean.startswith("0"): clean = "972" + clean[1:]
         return clean
     except:
         return None
 
-def notify(address, message):
-    phone = extract_phone(address)
-    if not phone:
-        return False
+def notify_customer(full_address_field, message):
+    """שליחת הודעה ללקוח"""
     try:
-        r = requests.post(
-            f"{BOT_URL}/send_update",
-            json={"phone": phone, "message": message},
+        phone_id = extract_phone_id(full_address_field)
+        
+        if not phone_id:
+            st.error("לא הצלחתי לחלץ מספר טלפון מההזמנה")
+            return False
+            
+        response = requests.post(
+            f"{BOT_URL}/send_update", 
+            json={"phone": phone_id, "message": message},
             headers={"X-Internal-Secret": INTERNAL_SECRET},
             timeout=10
         )
-        return r.status_code == 200
-    except:
+        return response.status_code == 200
+    except Exception as e:
+        st.error(f"שגיאת תקשורת: {e}")
         return False
 
-def get_counts():
-    rows = run_query("SELECT status FROM orders WHERE status IN ('ממתין לאישור','אושר')")
-    pending   = sum(1 for r in rows if r[0] == 'ממתין לאישור')
-    approved  = sum(1 for r in rows if r[0] == 'אושר')
+def check_new_orders():
+    """בדיקה אם יש הזמנות חדשות"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM orders WHERE status = 'ממתין לאישור'")
+        count = cur.fetchone()[0]
+        conn.close()
+        return count
+    except:
+        return 0
 
-    delivery_rows = run_query("SELECT order_type FROM orders WHERE status = 'ממתין לאישור'")
-    deliveries = sum(1 for r in delivery_rows if 'משלוח' in str(r[0]).lower() or 'delivery' in str(r[0]).lower())
-    pickups    = pending - deliveries
+def delete_order(order_id):
+    """מחיקת הזמנה מהמערכת"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM orders WHERE id = %s", (int(order_id),))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        st.error(f"שגיאה במחיקה: {e}")
+        return False
 
-    comp = run_query("SELECT COUNT(*) FROM complaints WHERE status='פתוח'")
-    complaints = comp[0][0] if comp else 0
-    return pending, approved, deliveries, pickups, complaints
+# --- 4. התחברות ---
+if 'logged_in' not in st.session_state: 
+    st.session_state.logged_in = False
+if 'last_order_count' not in st.session_state:
+    st.session_state.last_order_count = 0
 
-# ─────────────────────────────────────
-# Session state init
-# ─────────────────────────────────────
-for k, v in {
-    'logged_in': False,
-    'prev_pending': -1,
-    'prev_complaints': -1,
-    'sound_trigger': '',
-    'cancel_open': {}
-}.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
-
-# ─────────────────────────────────────
-# LOGIN
-# ─────────────────────────────────────
 if not st.session_state.logged_in:
-    _, col, _ = st.columns([1, 1.2, 1])
-    with col:
+    c1, c2, c3 = st.columns([1,2,1])
+    with c2:
         st.markdown("<br><br>", unsafe_allow_html=True)
-        st.markdown("""
-            <div class='login-card'>
-                <div style='font-size:52px;margin-bottom:16px'>🛒</div>
-                <h2>המכולת של הצדיק</h2>
-                <p>כניסה לממשק ניהול</p>
-            </div>
-        """, unsafe_allow_html=True)
-        pwd = st.text_input("סיסמה", type="password", placeholder="הקלד סיסמה...", key="pwd")
-        if st.button("כניסה →", use_container_width=True):
-            if pwd == ADMIN_PASSWORD:
+        st.markdown("<div class='login-box'><h2>🔐 כניסה למנהל</h2></div>", unsafe_allow_html=True)
+        pwd = st.text_input("סיסמה", type="password", key="login_pwd")
+        if st.button("כניסה", use_container_width=True):
+            if pwd == ADMIN_PASSWORD: 
                 st.session_state.logged_in = True
                 st.rerun()
-            else:
-                st.error("❌ סיסמה שגויה")
+            else: 
+                st.error("סיסמה שגויה")
     st.stop()
 
-# ─────────────────────────────────────
-# MAIN UI
-# ─────────────────────────────────────
-pending, approved, deliveries, pickups, complaints = get_counts()
+# --- 5. ממשק ראשי ---
+st.title("🛒 מערכת ניהול מכולת מתקדמת")
 
-# זיהוי שינויים לסאונד
-sound_to_play = ''
-if st.session_state.prev_pending >= 0 and pending > st.session_state.prev_pending:
-    sound_to_play = 'new_order'
-if st.session_state.prev_complaints >= 0 and complaints > st.session_state.prev_complaints:
-    sound_to_play = 'complaint'
-st.session_state.prev_pending    = pending
-st.session_state.prev_complaints = complaints
+# כפתורי ניווט עליונים
+col_header1, col_header2, col_header3 = st.columns([5, 2, 1])
 
-# data elements לJS
-st.markdown(f"""
-<div id='order-count-data'     data-count='{pending}'    style='display:none'></div>
-<div id='complaint-count-data' data-count='{complaints}' style='display:none'></div>
-<div id='sound-trigger'        data-sound='{sound_to_play}' style='display:none'></div>
-""", unsafe_allow_html=True)
+with col_header2:
+    st.markdown("<div class='refresh-btn'>", unsafe_allow_html=True)
+    if st.button("🔄 רענן נתונים", use_container_width=True, key="top_refresh"): 
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
-# ─── Header ───
-header_col, btn_col = st.columns([5, 1])
-with header_col:
-    now = datetime.now().strftime("%A, %d/%m/%Y | %H:%M")
+with col_header3:
+    if st.button("🚪 התנתק", use_container_width=True): 
+        st.session_state.logged_in = False
+        st.rerun()
+
+# בדיקת הזמנות חדשות
+current_order_count = check_new_orders()
+
+if current_order_count > st.session_state.last_order_count and st.session_state.last_order_count > 0:
     st.markdown(f"""
-        <div class='main-header'>
-            <div>
-                <h1>🛒 המכולת של הצדיק</h1>
-                <div class='subtitle'>{now}</div>
-            </div>
+        <div class='new-order-alert'>
+            🔔 נכנסה הזמנה חדשה! ({current_order_count} הזמנות ממתינות)
         </div>
     """, unsafe_allow_html=True)
-with btn_col:
-    st.markdown("<br>", unsafe_allow_html=True)
-    col_r, col_l = st.columns(2)
-    with col_r:
-        st.markdown('<div data-btn="refresh">', unsafe_allow_html=True)
-        if st.button("🔄", help="רענן", key="refresh_top"):
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-    with col_l:
-        if st.button("🚪", help="התנתק", key="logout"):
-            st.session_state.logged_in = False
-            st.rerun()
+    st.balloons()
 
-# ─── Stats ───
-s1, s2, s3, s4 = st.columns(4)
-for col, cls, num, label in [
-    (s1, "stat-pending",    pending,    "ממתינות לטיפול"),
-    (s2, "stat-delivery",   deliveries, "משלוחים"),
-    (s3, "stat-pickup",     pickups,    "איסופים"),
-    (s4, "stat-complaints", complaints, "תלונות פתוחות"),
-]:
-    with col:
-        st.markdown(f"""
-            <div class='stat-card {cls}'>
-                <div class='stat-number'>{num}</div>
-                <div class='stat-label'>{label}</div>
-            </div>
-        """, unsafe_allow_html=True)
+st.session_state.last_order_count = current_order_count
 
-st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+# הוספנו פה את הטאב של התלונות
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📦 הזמנות לטיפול", "⚠️ תלונות", "✅ היסטוריה", "❌ מבוטלות", "🏪 מלאי"])
 
-# ─── Alert banner ───
-if pending > 0:
-    icons = "🔔" * min(pending, 5)
-    st.markdown(f"""
-        <div class='alert-banner'>
-            {icons} יש {pending} הזמנות שמחכות לאישור שלך!
-        </div>
-    """, unsafe_allow_html=True)
-
-# ─────────────────────────────────────
-# TABS
-# ─────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    f"📦 לטיפול ({pending})",
-    f"⚠️ תלונות ({complaints})",
-    "✅ אושרו",
-    "❌ בוטלו",
-    "🏪 מלאי"
-])
-
-# ══════════════════════════════════════
-# TAB 1 — הזמנות לטיפול
-# ══════════════════════════════════════
+# --- טאב 1: הזמנות לטיפול ---
 with tab1:
-    search = st.text_input("🔍 חפש לפי שם, מוצר או מספר הזמנה", placeholder="הקלד...", key="s1")
-
-    conn = get_db()
-    df = pd.read_sql(
-        "SELECT id, customer_name, items, address, order_type, created_at FROM orders WHERE status='ממתין לאישור' ORDER BY created_at DESC",
+    st.markdown(f"### 📦 הזמנות חדשות - {current_order_count} ממתינות")
+    
+    search_pending = st.text_input(
+        "🔍 חפש הזמנה",
+        placeholder="חפש לפי שם לקוח, מוצרים או מספר הזמנה...",
+        key="search_pending"
+    )
+    
+    conn = get_db_connection()
+    # הוספנו את order_type לשאילתה
+    pending_df = pd.read_sql(
+        "SELECT id, customer_name, items, address, order_type, created_at FROM orders WHERE status = 'ממתין לאישור' ORDER BY created_at DESC", 
         conn
     )
     conn.close()
-
-    if search:
-        mask = (
-            df['customer_name'].str.contains(search, case=False, na=False) |
-            df['items'].str.contains(search, case=False, na=False) |
-            df['id'].astype(str).str.contains(search)
-        )
-        df = df[mask]
-
-    if df.empty:
+    
+    if search_pending:
+        pending_df = pending_df[
+            pending_df['customer_name'].str.contains(search_pending, case=False, na=False) |
+            pending_df['items'].str.contains(search_pending, case=False, na=False) |
+            pending_df['id'].astype(str).str.contains(search_pending, case=False, na=False)
+        ]
+        st.info(f"🔍 נמצאו {len(pending_df)} תוצאות עבור: '{search_pending}'")
+    
+    if not pending_df.empty:
+        for idx, row in pending_df.iterrows():
+            oid = row['id']
+            # נבדוק אם זה משלוח או איסוף
+            order_type = row.get('order_type', 'משלוח')
+            type_icon = "🛒 איסוף עצמי" if order_type == 'איסוף עצמי' else "🛵 משלוח"
+            
+            st.markdown(f"""
+                <div class='order-card'>
+                    <h3>📋 הזמנה #{oid}</h3>
+                    <p><strong>👤 לקוח:</strong> {row['customer_name']}</p>
+                    <p><strong>🛍️ מוצרים:</strong> {row['items']}</p>
+                    <p><strong>🚚 סוג:</strong> <span style="color:#feca57; font-weight:bold;">{type_icon}</span></p>
+                    <p><strong>📍 פרטים/כתובת:</strong> {row['address']}</p>
+                    <p><strong>🕐 נכנסה:</strong> {row['created_at'].strftime('%d/%m/%Y %H:%M:%S')}</p>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            col_time, col_approve, col_cancel, col_delete = st.columns([2, 2, 2, 1])
+            
+            with col_time:
+                # שינוי המלל בהתאם לאיסוף או משלוח
+                placeholder_text = "מתי מוכן לאיסוף?" if order_type == 'איסוף עצמי' else "זמן הגעה משוער"
+                time_est = st.text_input(
+                    f"⏱️ {placeholder_text}", 
+                    value="20 דקות",
+                    key=f"time_{oid}",
+                    label_visibility="collapsed",
+                    placeholder=placeholder_text
+                )
+            
+            with col_approve:
+                st.markdown("<div class='approve-btn'>", unsafe_allow_html=True)
+                if st.button("✅ אשר ושלח", use_container_width=True, key=f"approve_{oid}"):
+                    if time_est:
+                        conn = get_db_connection()
+                        cur = conn.cursor()
+                        cur.execute(
+                            "UPDATE orders SET status='אושר', delivery_time=%s, approved_at=NOW() WHERE id=%s", 
+                            (time_est, int(oid))
+                        )
+                        conn.commit()
+                        conn.close()
+                        
+                        # הודעה מותאמת אישית ללקוח לפי סוג ההזמנה
+                        if order_type == 'איסוף עצמי':
+                            msg = f"היי {row['customer_name']}! ההזמנה אושרה ✅\n🛒 מוצרים: {row['items']}\n🛍️ ההזמנה תהיה מוכנה לאיסוף אצלנו בעוד: {time_est}.\nתודה!"
+                        else:
+                            msg = f"היי {row['customer_name']}! ההזמנה אושרה ✅\n🛒 מוצרים: {row['items']}\n🛵 זמן הגעה משוער: {time_est}.\nתודה!"
+                        
+                        if notify_customer(row['address'], msg):
+                            st.success("✅ ההזמנה אושרה!")
+                        else:
+                            st.warning("⚠️ ההזמנה אושרה, אך ההודעה נכשלה.")
+                        
+                        time.sleep(1.5)
+                        st.rerun()
+                    else:
+                        st.error("הזן זמן")
+                st.markdown("</div>", unsafe_allow_html=True)
+            
+            with col_cancel:
+                st.markdown("<div class='cancel-btn'>", unsafe_allow_html=True)
+                if st.button("❌ בטל", use_container_width=True, key=f"cancel_{oid}"):
+                    st.session_state[f'show_cancel_{oid}'] = True
+                st.markdown("</div>", unsafe_allow_html=True)
+            
+            with col_delete:
+                st.markdown("<div class='delete-btn'>", unsafe_allow_html=True)
+                if st.button("🗑️", use_container_width=True, key=f"delete_{oid}", help="מחק הזמנה"):
+                    if delete_order(oid):
+                        st.success(f"🗑️ הזמנה #{oid} נמחקה")
+                        time.sleep(1)
+                        st.rerun()
+                st.markdown("</div>", unsafe_allow_html=True)
+            
+            if st.session_state.get(f'show_cancel_{oid}', False):
+                with st.container():
+                    st.markdown("---")
+                    st.markdown("#### 🔴 ביטול הזמנה")
+                    
+                    col_reason, col_confirm = st.columns([3, 1])
+                    with col_reason:
+                        reason = st.selectbox(
+                            "סיבת הביטול:", 
+                            ["חוסר במלאי", "כתובת שגויה", "לקוח לא זמין", "אחר"],
+                            key=f"reason_select_{oid}"
+                        )
+                        if reason == "אחר":
+                            custom_reason = st.text_input("פרט את הסיבה:", key=f"custom_reason_{oid}", placeholder="הסבר קצר ללקוח")
+                            final_reason = custom_reason if custom_reason else "לא צוינה סיבה"
+                        else:
+                            final_reason = reason
+                    
+                    with col_confirm:
+                        st.markdown("<div class='cancel-btn'>", unsafe_allow_html=True)
+                        if st.button("אשר ביטול", key=f"confirm_cancel_{oid}", use_container_width=True):
+                            conn = get_db_connection()
+                            cur = conn.cursor()
+                            cur.execute(
+                                "UPDATE orders SET status='בוטל', cancellation_reason=%s WHERE id=%s", 
+                                (final_reason, int(oid))
+                            )
+                            conn.commit()
+                            conn.close()
+                            
+                            msg = f"היי {row['customer_name']}, ההזמנה בוטלה ❌\nסיבה: {final_reason}.\nמצטערים על אי הנוחות."
+                            notify_customer(row['address'], msg)
+                            
+                            st.error("❌ ההזמנה בוטלה")
+                            st.session_state[f'show_cancel_{oid}'] = False
+                            time.sleep(1.5)
+                            st.rerun()
+                        st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown("---")
+    else:
         st.markdown("""
             <div class='empty-state'>
-                <div class='icon'>🎉</div>
-                <h3>כל ההזמנות טופלו!</h3>
-                <p>אין הזמנות חדשות כרגע. תמשיך כך 💪</p>
+                <h2>🎉 כל הכבוד!</h2>
+                <p>אין הזמנות חדשות כרגע. הכל טופל! 😊</p>
             </div>
         """, unsafe_allow_html=True)
-    else:
-        for _, row in df.iterrows():
-            oid        = row['id']
-            otype      = str(row.get('order_type', 'משלוח'))
-            is_pickup  = 'איסוף' in otype
-            card_class = 'order-card pickup' if is_pickup else 'order-card'
-            badge_html = "<span class='badge badge-pickup'>🛒 איסוף עצמי</span>" if is_pickup else "<span class='badge badge-delivery'>🛵 משלוח</span>"
-            created    = row['created_at'].strftime('%H:%M — %d/%m/%Y')
 
-            # חילוץ כתובת נקייה (בלי WA_ID)
-            address_clean = str(row['address']).split('|')[0].strip() if '|' in str(row['address']) else str(row['address'])
-
-            st.markdown(f"""
-                <div class='{card_class}'>
-                    <div style='display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:8px'>
-                        <div>
-                            <div class='order-id'>הזמנה #{oid} &nbsp;•&nbsp; {badge_html} &nbsp;<span class='badge badge-new'>חדש</span></div>
-                            <div class='order-name'>{row['customer_name']}</div>
-                        </div>
-                        <div style='color:#6b7280; font-size:13px'>{created}</div>
-                    </div>
-                    <div class='order-items'>🛍️ {row['items']}</div>
-                    <div class='order-meta'>
-                        <span>📍 {address_clean}</span>
-                    </div>
-                </div>
-            """, unsafe_allow_html=True)
-
-            c_time, c_approve, c_cancel, c_del = st.columns([2.5, 2, 2, 0.7])
-
-            with c_time:
-                placeholder = "כמה דקות עד מוכן לאיסוף?" if is_pickup else "זמן הגעה משוער"
-                time_val = st.text_input("⏱️", value="20 דקות", key=f"t_{oid}",
-                                          label_visibility="collapsed", placeholder=placeholder)
-
-            with c_approve:
-                st.markdown('<div data-btn="approve">', unsafe_allow_html=True)
-                if st.button("✅ אשר ושלח ללקוח", key=f"app_{oid}", use_container_width=True):
-                    run_query(
-                        "UPDATE orders SET status='אושר', delivery_time=%s, approved_at=NOW() WHERE id=%s",
-                        (time_val, int(oid)), fetch=False
-                    )
-                    if is_pickup:
-                        msg = f"היי {row['customer_name']}! ✅ ההזמנה שלך מאושרת.\n🛒 מוצרים: {row['items']}\n⏱️ מוכן לאיסוף בעוד: {time_val}\nתודה שקנית אצלנו! 🙏"
-                        # נגן צליל איסוף
-                        st.markdown('<div id="sound-trigger" data-sound="pickup" style="display:none"></div>', unsafe_allow_html=True)
-                    else:
-                        msg = f"היי {row['customer_name']}! ✅ ההזמנה שלך אושרה.\n🛵 זמן הגעה משוער: {time_val}\n🛍️ מוצרים: {row['items']}\nתודה! 🙏"
-                        st.markdown('<div id="sound-trigger" data-sound="delivery" style="display:none"></div>', unsafe_allow_html=True)
-
-                    ok = notify(row['address'], msg)
-                    if ok:
-                        st.success("✅ אושר ונשלחה הודעה ללקוח")
-                    else:
-                        st.warning("⚠️ אושר, אבל שליחת ההודעה נכשלה")
-                    time.sleep(1)
-                    st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
-
-            with c_cancel:
-                st.markdown('<div data-btn="cancel">', unsafe_allow_html=True)
-                if st.button("❌ בטל הזמנה", key=f"can_{oid}", use_container_width=True):
-                    st.session_state.cancel_open[oid] = not st.session_state.cancel_open.get(oid, False)
-                st.markdown('</div>', unsafe_allow_html=True)
-
-            with c_del:
-                st.markdown('<div data-btn="delete">', unsafe_allow_html=True)
-                if st.button("🗑️", key=f"del_{oid}", use_container_width=True, help="מחק"):
-                    run_query("DELETE FROM orders WHERE id=%s", (int(oid),), fetch=False)
-                    st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
-
-            # ביטול מורחב
-            if st.session_state.cancel_open.get(oid, False):
-                with st.container():
-                    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
-                    cr1, cr2 = st.columns([3, 1])
-                    with cr1:
-                        reason = st.selectbox("סיבת ביטול", ["חוסר במלאי","כתובת שגויה","לקוח לא זמין","אחר"], key=f"rs_{oid}")
-                        if reason == "אחר":
-                            reason = st.text_input("פרט:", key=f"rc_{oid}", placeholder="כתוב סיבה...") or "לא צוינה סיבה"
-                    with cr2:
-                        st.markdown("<br>", unsafe_allow_html=True)
-                        st.markdown('<div data-btn="cancel">', unsafe_allow_html=True)
-                        if st.button("אשר ביטול", key=f"cb_{oid}", use_container_width=True):
-                            run_query("UPDATE orders SET status='בוטל', cancellation_reason=%s WHERE id=%s",
-                                      (reason, int(oid)), fetch=False)
-                            notify(row['address'], f"היי {row['customer_name']}, ההזמנה בוטלה ❌\nסיבה: {reason}\nמצטערים מאוד!")
-                            st.session_state.cancel_open[oid] = False
-                            time.sleep(1)
-                            st.rerun()
-                        st.markdown('</div>', unsafe_allow_html=True)
-
-            st.markdown("<hr class='divider'>", unsafe_allow_html=True)
-
-# ══════════════════════════════════════
-# TAB 2 — תלונות
-# ══════════════════════════════════════
+# --- טאב 2: תלונות ---
 with tab2:
+    st.markdown("### ⚠️ תלונות ופניות פתוחות")
+    
     try:
-        conn = get_db()
-        comp_df = pd.read_sql("SELECT * FROM complaints WHERE status='פתוח' ORDER BY created_at DESC", conn)
+        conn = get_db_connection()
+        comp_df = pd.read_sql("SELECT * FROM complaints WHERE status = 'פתוח' ORDER BY created_at DESC", conn)
         conn.close()
-
-        if comp_df.empty:
+        
+        if not comp_df.empty:
+            for i, row in comp_df.iterrows():
+                st.markdown(f"""
+                <div class='complaint-card'>
+                    <h3>⚠️ פנייה מלקוח: {row['customer_name']}</h3>
+                    <p><strong>📱 טלפון:</strong> {row['phone']}</p>
+                    <p><strong>📝 פירוט התלונה:</strong> {row['description']}</p>
+                    <p><strong>🕒 נתקבל ב:</strong> {row['created_at'].strftime('%d/%m/%Y %H:%M')}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # כפתור לסגירת התלונה
+                col_mark, _ = st.columns([1, 4])
+                with col_mark:
+                    st.markdown("<div class='approve-btn'>", unsafe_allow_html=True)
+                    if st.button("✅ סומן כטופל", key=f"comp_{row['id']}", use_container_width=True):
+                        conn = get_db_connection()
+                        cur = conn.cursor()
+                        cur.execute("UPDATE complaints SET status = 'טופל' WHERE id = %s", (row['id'],))
+                        conn.commit()
+                        conn.close()
+                        st.success("התלונה נסגרה בהצלחה!")
+                        time.sleep(1)
+                        st.rerun()
+                    st.markdown("</div>", unsafe_allow_html=True)
+                st.markdown("---")
+        else:
             st.markdown("""
                 <div class='empty-state'>
-                    <div class='icon'>😊</div>
-                    <h3>אין תלונות פתוחות!</h3>
-                    <p>כולם מרוצים — כך ממשיכים 💪</p>
+                    <h2>🍯 הכל דבש!</h2>
+                    <p>אין תלונות פתוחות כרגע מלקוחות.</p>
                 </div>
             """, unsafe_allow_html=True)
-        else:
-            for _, row in comp_df.iterrows():
-                t = row['created_at'].strftime('%H:%M — %d/%m/%Y')
-                st.markdown(f"""
-                    <div class='complaint-card'>
-                        <div style='display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:12px'>
-                            <div class='complaint-name'>⚠️ {row['customer_name']}</div>
-                            <div style='color:#6b7280; font-size:13px'>{t}</div>
-                        </div>
-                        <div style='color:#9ca3af; font-size:13px; margin-bottom:8px'>📱 {row['phone']}</div>
-                        <div class='complaint-desc'>{row['description']}</div>
-                    </div>
-                """, unsafe_allow_html=True)
+    except Exception as e:
+        st.error("הייתה בעיה בטעינת התלונות. האם הרצת את פקודת יצירת הטבלה ב-SQL?")
 
-                c_mark, _ = st.columns([1, 4])
-                with c_mark:
-                    st.markdown('<div data-btn="approve">', unsafe_allow_html=True)
-                    if st.button("✅ סמן כטופל", key=f"cp_{row['id']}", use_container_width=True):
-                        run_query("UPDATE complaints SET status='טופל' WHERE id=%s", (row['id'],), fetch=False)
-                        st.success("✔ נסגר")
-                        time.sleep(0.8)
-                        st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
-                st.markdown("<hr class='divider'>", unsafe_allow_html=True)
-    except:
-        st.error("שגיאה בטעינת תלונות — ודא שהטבלה קיימת ב-DB")
-
-# ══════════════════════════════════════
-# TAB 3 — אושרו
-# ══════════════════════════════════════
+# --- טאב 3: היסטוריה ---
 with tab3:
-    conn = get_db()
-    adf = pd.read_sql(
-        "SELECT id, customer_name, items, order_type, delivery_time, approved_at FROM orders WHERE status='אושר' ORDER BY approved_at DESC LIMIT 60",
+    st.markdown("### ✅ הזמנות שאושרו")
+    search_approved = st.text_input("🔍 חפש בהיסטוריה", placeholder="חפש...", key="search_approved")
+    
+    conn = get_db_connection()
+    approved_df = pd.read_sql(
+        "SELECT id, customer_name, items, delivery_time, approved_at FROM orders WHERE status='אושר' ORDER BY approved_at DESC LIMIT 50", 
         conn
     )
     conn.close()
-    if not adf.empty:
-        st.dataframe(adf, use_container_width=True, hide_index=True,
+    
+    if not approved_df.empty:
+        st.dataframe(
+            approved_df, 
+            use_container_width=True,
             column_config={
-                "id":            st.column_config.NumberColumn("מס'", format="%d"),
+                "id": st.column_config.NumberColumn("מס'", format="%d"),
                 "customer_name": "לקוח",
-                "items":         "מוצרים",
-                "order_type":    "סוג",
-                "delivery_time": "זמן",
-                "approved_at":   st.column_config.DatetimeColumn("אישור", format="DD/MM HH:mm"),
-            })
+                "items": "מוצרים",
+                "delivery_time": "זמן מוערך",
+                "approved_at": st.column_config.DatetimeColumn("אושר בשעה", format="DD/MM/YYYY HH:mm")
+            },
+            hide_index=True
+        )
     else:
-        st.info("אין עדיין הזמנות שאושרו")
+        st.info("אין עדיין היסטוריה")
 
-# ══════════════════════════════════════
-# TAB 4 — בוטלו
-# ══════════════════════════════════════
+# --- טאב 4: מבוטלות ---
 with tab4:
-    conn = get_db()
-    cdf = pd.read_sql(
-        "SELECT id, customer_name, items, cancellation_reason, created_at FROM orders WHERE status='בוטל' ORDER BY created_at DESC LIMIT 60",
+    st.markdown("### ❌ הזמנות מבוטלות")
+    conn = get_db_connection()
+    cancelled_df = pd.read_sql(
+        "SELECT id, customer_name, items, cancellation_reason, created_at FROM orders WHERE status='בוטל' ORDER BY created_at DESC LIMIT 50", 
         conn
     )
     conn.close()
-    if not cdf.empty:
-        st.dataframe(cdf, use_container_width=True, hide_index=True,
+    
+    if not cancelled_df.empty:
+        st.dataframe(
+            cancelled_df, 
+            use_container_width=True,
             column_config={
-                "id":                  st.column_config.NumberColumn("מס'", format="%d"),
-                "customer_name":       "לקוח",
-                "items":               "מוצרים",
-                "cancellation_reason": "סיבה",
-                "created_at":          st.column_config.DatetimeColumn("תאריך", format="DD/MM HH:mm"),
-            })
+                "id": st.column_config.NumberColumn("מס'", format="%d"),
+                "customer_name": "לקוח",
+                "items": "מוצרים",
+                "cancellation_reason": "סיבת ביטול",
+                "created_at": st.column_config.DatetimeColumn("תאריך", format="DD/MM/YYYY HH:mm")
+            },
+            hide_index=True
+        )
     else:
         st.info("אין הזמנות מבוטלות")
 
-# ══════════════════════════════════════
-# TAB 5 — מלאי
-# ══════════════════════════════════════
+# --- טאב 5: מלאי ---
 with tab5:
-    sub1, sub2 = st.tabs(["📋 מוצרים קיימים", "➕ הוסף מוצר"])
-
-    with sub1:
-        ps = st.text_input("🔍 חפש מוצר", placeholder="שם מוצר...", key="ps")
-        conn = get_db()
-        pf = pd.read_sql("SELECT id, name, price, stock FROM products ORDER BY name", conn)
+    st.markdown("### 📦 ניהול מוצרים ומלאי")
+    
+    subtab1, subtab2 = st.tabs(["📋 רשימת מוצרים", "➕ הוסף מוצר חדש"])
+    
+    with subtab1:
+        search_products = st.text_input("🔍 חפש מוצר", placeholder="חפש לפי שם מוצר...", key="search_products")
+        conn = get_db_connection()
+        df_p = pd.read_sql("SELECT id, name, price, stock FROM products ORDER BY name", conn)
         conn.close()
-        if ps:
-            pf = pf[pf['name'].str.contains(ps, case=False, na=False)]
+        
+        if search_products:
+            df_p = df_p[df_p['name'].str.contains(search_products, case=False, na=False)]
+        
+        if not df_p.empty:
+            for idx, product in df_p.iterrows():
+                pid = product['id']
+                with st.container():
+                    st.markdown(f"""
+                        <div class='order-card' style='margin: 15px 0;'>
+                            <h3 style='color: #667eea !important;'>{product['name']}</h3>
+                            <p><strong>💰 מחיר:</strong> ₪{product['price']:.2f}</p>
+                            <p><strong>📦 מלאי:</strong> {product['stock']} יחידות</p>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+                    col_edit_name, col_edit_price, col_edit_stock, col_save, col_delete = st.columns([2, 1.5, 1.5, 1, 1])
+                    with col_edit_name:
+                        new_name = st.text_input("שם", value=product['name'], key=f"name_{pid}", label_visibility="collapsed")
+                    with col_edit_price:
+                        new_price = st.number_input("מחיר", value=float(product['price']), min_value=0.0, step=0.5, key=f"price_{pid}", label_visibility="collapsed")
+                    with col_edit_stock:
+                        new_stock = st.number_input("מלאי", value=int(product['stock']), min_value=0, step=1, key=f"stock_{pid}", label_visibility="collapsed")
+                    
+                    with col_save:
+                        st.markdown("<div class='approve-btn'>", unsafe_allow_html=True)
+                        if st.button("💾", key=f"save_{pid}", use_container_width=True):
+                            conn = get_db_connection()
+                            cur = conn.cursor()
+                            cur.execute("UPDATE products SET name=%s, price=%s, stock=%s WHERE id=%s", (new_name, new_price, new_stock, pid))
+                            conn.commit()
+                            conn.close()
+                            st.success("✅")
+                            time.sleep(0.5)
+                            st.rerun()
+                        st.markdown("</div>", unsafe_allow_html=True)
+                    
+                    with col_delete:
+                        st.markdown("<div class='delete-btn'>", unsafe_allow_html=True)
+                        if st.button("🗑️", key=f"del_{pid}", use_container_width=True):
+                            conn = get_db_connection()
+                            cur = conn.cursor()
+                            cur.execute("DELETE FROM products WHERE id=%s", (pid,))
+                            conn.commit()
+                            conn.close()
+                            st.success("🗑️")
+                            time.sleep(0.5)
+                            st.rerun()
+                        st.markdown("</div>", unsafe_allow_html=True)
+                    st.markdown("---")
 
-        if pf.empty:
-            st.info("לא נמצאו מוצרים")
-        else:
-            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-            for _, p in pf.iterrows():
-                pid = p['id']
-                c1, c2, c3, c4, c5 = st.columns([3, 1.5, 1.5, 0.8, 0.8])
-                with c1:
-                    new_name = st.text_input("שם", value=p['name'], key=f"pn_{pid}", label_visibility="collapsed")
-                with c2:
-                    new_price = st.number_input("מחיר", value=float(p['price']), min_value=0.0, step=0.5, key=f"pp_{pid}", label_visibility="collapsed", format="%.2f")
-                with c3:
-                    new_stock = st.number_input("מלאי", value=int(p['stock']), min_value=0, step=1, key=f"ps2_{pid}", label_visibility="collapsed")
-                with c4:
-                    st.markdown('<div data-btn="approve">', unsafe_allow_html=True)
-                    if st.button("💾", key=f"sv_{pid}", use_container_width=True):
-                        run_query("UPDATE products SET name=%s, price=%s, stock=%s WHERE id=%s",
-                                  (new_name, new_price, new_stock, pid), fetch=False)
-                        st.success("✅")
-                        time.sleep(0.4)
-                        st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
-                with c5:
-                    st.markdown('<div data-btn="delete">', unsafe_allow_html=True)
-                    if st.button("🗑️", key=f"dp_{pid}", use_container_width=True):
-                        run_query("DELETE FROM products WHERE id=%s", (pid,), fetch=False)
-                        st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
+    with subtab2:
+        with st.form("add_product_form", clear_on_submit=True):
+            st.markdown("<div class='action-section'>", unsafe_allow_html=True)
+            col_name, col_price, col_stock = st.columns([3, 2, 2])
+            with col_name:
+                product_name = st.text_input("🏷️ שם המוצר", placeholder="לדוגמה: חלב 3% ליטר")
+            with col_price:
+                product_price = st.number_input("💰 מחיר (₪)", min_value=0.0, step=0.5, format="%.2f")
+            with col_stock:
+                product_stock = st.number_input("📦 כמות במלאי", min_value=0, step=1, value=0)
+            st.markdown("</div>", unsafe_allow_html=True)
+            
+            st.markdown("<div class='approve-btn'>", unsafe_allow_html=True)
+            submit = st.form_submit_button("➕ הוסף מוצר למערכת", use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+            
+            if submit and product_name and product_price > 0:
+                conn = get_db_connection()
+                cur = conn.cursor()
+                cur.execute("INSERT INTO products (name, price, stock) VALUES (%s, %s, %s)", (product_name, product_price, product_stock))
+                conn.commit()
+                conn.close()
+                st.success(f"✅ המוצר '{product_name}' נוסף בהצלחה!")
+                time.sleep(1)
+                st.rerun()
 
-    with sub2:
-        with st.form("add_prod", clear_on_submit=True):
-            a1, a2, a3 = st.columns([3, 2, 2])
-            with a1:
-                pname  = st.text_input("🏷️ שם המוצר", placeholder="לדוגמה: לחם אחיד")
-            with a2:
-                pprice = st.number_input("💰 מחיר (₪)", min_value=0.0, step=0.5, format="%.2f")
-            with a3:
-                pstock = st.number_input("📦 כמות", min_value=0, step=1, value=10)
-
-            st.markdown('<div data-btn="approve">', unsafe_allow_html=True)
-            if st.form_submit_button("➕ הוסף מוצר", use_container_width=True):
-                if pname and pprice > 0:
-                    run_query("INSERT INTO products (name, price, stock) VALUES (%s,%s,%s)",
-                              (pname, pprice, pstock), fetch=False)
-                    st.success(f"✅ '{pname}' נוסף!")
-                    time.sleep(0.8)
-                    st.rerun()
-                else:
-                    st.error("מלא שם ומחיר")
-            st.markdown('</div>', unsafe_allow_html=True)
-
-# ─── Footer ───
+# --- Footer ---
+st.markdown("---")
 st.markdown("""
-    <div style='text-align:center; padding:32px 0 8px; color:#374151; font-size:13px'>
-        המכולת של הצדיק · ממשק ניהול v4.0
+    <div style='text-align: center; padding: 20px; color: #a0a0c0;'>
+        <p>🛒 מערכת ניהול מכולת מתקדמת | גרסה 3.0</p>
     </div>
 """, unsafe_allow_html=True)
