@@ -5,3 +5,5 @@ groq
 streamlit
 pandas
 gunicorn
+requests
+streamlit-autorefresh
