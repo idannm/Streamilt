@@ -65,18 +65,23 @@ def db_df(sql: str, params=None):
 # ENSURE PROMOTION TABLE EXISTS
 # ══════════════════════════════════════════════
 def ensure_promotions_table():
+    # יצירת טבלה אם לא קיימת
     db_execute("""
         CREATE TABLE IF NOT EXISTS promotions (
             id SERIAL PRIMARY KEY,
             title TEXT NOT NULL,
-            description TEXT,
-            active BOOLEAN DEFAULT TRUE,
-            never_ends BOOLEAN DEFAULT FALSE,
-            start_date DATE,
-            end_date DATE,
             created_at TIMESTAMP DEFAULT NOW()
         )
     """, fetch=False)
+    # הוספת עמודות חסרות אם הטבלה כבר קיימת בלעדיהן
+    for col_sql in [
+        "ALTER TABLE promotions ADD COLUMN IF NOT EXISTS description TEXT",
+        "ALTER TABLE promotions ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE promotions ADD COLUMN IF NOT EXISTS never_ends BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE promotions ADD COLUMN IF NOT EXISTS start_date DATE",
+        "ALTER TABLE promotions ADD COLUMN IF NOT EXISTS end_date DATE",
+    ]:
+        db_execute(col_sql, fetch=False)
 
 # ══════════════════════════════════════════════
 # CACHED QUERIES
