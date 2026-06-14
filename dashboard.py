@@ -5,7 +5,7 @@ import pandas as pd
 import os
 import requests
 import time
-from datetime import datetime
+from datetime import datetime, date
 
 # ══════════════════════════════════════════════
 # CONFIG
@@ -23,14 +23,13 @@ INTERNAL_SECRET = os.environ.get("INTERNAL_SECRET", "123")
 ADMIN_PASSWORD  = os.environ.get("ADMIN_PASSWORD", "12345")
 
 # ══════════════════════════════════════════════
-# CONNECTION POOL — נפתח פעם אחת לכל session
+# CONNECTION POOL
 # ══════════════════════════════════════════════
 @st.cache_resource
 def get_pool():
     return psycopg2.pool.ThreadedConnectionPool(minconn=1, maxconn=5, dsn=DB_URL)
 
 def db_execute(sql: str, params=(), fetch: bool = True):
-    """הרץ שאילתה דרך ה-pool — מהיר פי 3 מחיבור חדש בכל פעם."""
     pool = get_pool()
     conn = pool.getconn()
     try:
@@ -51,7 +50,6 @@ def db_execute(sql: str, params=(), fetch: bool = True):
         pool.putconn(conn)
 
 def db_df(sql: str, params=None):
-    """קרא DataFrame — משתמש ב-pool connection."""
     pool = get_pool()
     conn = pool.getconn()
     try:
@@ -64,15 +62,32 @@ def db_df(sql: str, params=None):
         pool.putconn(conn)
 
 # ══════════════════════════════════════════════
-# CACHED QUERIES — רק לנתונים שלא משתנים לעיתים
+# ENSURE PROMOTION TABLE EXISTS
 # ══════════════════════════════════════════════
-@st.cache_data(ttl=8)   # מתרענן כל 8 שניות
+def ensure_promotions_table():
+    db_execute("""
+        CREATE TABLE IF NOT EXISTS promotions (
+            id SERIAL PRIMARY KEY,
+            title TEXT NOT NULL,
+            description TEXT,
+            active BOOLEAN DEFAULT TRUE,
+            never_ends BOOLEAN DEFAULT FALSE,
+            start_date DATE,
+            end_date DATE,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    """, fetch=False)
+
+# ══════════════════════════════════════════════
+# CACHED QUERIES
+# ══════════════════════════════════════════════
+@st.cache_data(ttl=6)
 def fetch_pending_orders():
     return db_df(
         "SELECT id, customer_name, items, address, order_type, created_at FROM orders WHERE status='ממתין לאישור' ORDER BY created_at DESC"
     )
 
-@st.cache_data(ttl=8)
+@st.cache_data(ttl=6)
 def fetch_counts():
     rows = db_execute("SELECT status, order_type FROM orders WHERE status='ממתין לאישור'")
     pending    = len(rows)
@@ -105,7 +120,28 @@ def fetch_products(search=""):
         df = df[df['name'].str.contains(search, case=False, na=False)]
     return df
 
-@st.cache_data(ttl=0)   # לא מאחסן — נקרא רק כשצריך
+@st.cache_data(ttl=10)
+def fetch_promotions():
+    try:
+        return db_df("SELECT * FROM promotions ORDER BY created_at DESC")
+    except:
+        return pd.DataFrame()
+
+@st.cache_data(ttl=10)
+def fetch_active_promotions():
+    """מחזיר מבצעים פעילים כרגע (לבאנר)"""
+    try:
+        today = date.today().isoformat()
+        return db_df(f"""
+            SELECT title, description FROM promotions
+            WHERE active=TRUE
+              AND (never_ends=TRUE OR (start_date <= '{today}' AND end_date >= '{today}'))
+            ORDER BY created_at DESC
+        """)
+    except:
+        return pd.DataFrame()
+
+@st.cache_data(ttl=0)
 def fetch_day_stats():
     today = datetime.now().strftime('%Y-%m-%d')
     rows  = db_execute(f"SELECT status FROM orders WHERE DATE(created_at)='{today}'")
@@ -119,7 +155,6 @@ def fetch_day_stats():
     }
 
 def invalidate_orders():
-    """נקה cache אחרי כל פעולה שמשנה הזמנות."""
     fetch_pending_orders.clear()
     fetch_counts.clear()
     fetch_approved.clear()
@@ -130,6 +165,10 @@ def invalidate_complaints():
 
 def invalidate_products():
     fetch_products.clear()
+
+def invalidate_promotions():
+    fetch_promotions.clear()
+    fetch_active_promotions.clear()
 
 # ══════════════════════════════════════════════
 # HELPERS
@@ -174,105 +213,146 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600;700;800;900&family=Rubik+Mono+One&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-html,body,[class*="css"]{font-family:'Rubik',sans-serif!important;direction:rtl!important}
+html,body,[class*="css"]{font-family:'Rubik',sans-serif!important;direction:rtl!important;font-size:15px!important}
 .stApp{background:#080b14!important;color:#dde1f0!important}
 #MainMenu,footer,header,[data-testid="stDecoration"],[data-testid="stToolbar"]{display:none!important;visibility:hidden!important}
-.block-container{padding:clamp(.75rem,2vw,1.4rem) clamp(.75rem,2vw,1.4rem) 3rem!important;max-width:100%!important}
+.block-container{padding:1.2rem 1.4rem 3rem!important;max-width:100%!important}
 section[data-testid="stSidebar"]{display:none!important}
 
-.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px}
+/* ── STATS ROW ── */
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
 @media(max-width:860px){.stats-row{grid-template-columns:repeat(2,1fr)}}
-.sc{border-radius:14px;padding:clamp(12px,2vw,18px);border:1px solid rgba(255,255,255,.06);transition:transform .18s,box-shadow .18s;position:relative;overflow:hidden}
-.sc:hover{transform:translateY(-2px);box-shadow:0 12px 36px rgba(0,0,0,.45)}
-.sc::after{content:attr(data-icon);position:absolute;right:8px;bottom:2px;font-size:clamp(36px,6vw,52px);opacity:.1;pointer-events:none;line-height:1}
-.sc .num{font-size:clamp(26px,5vw,42px);font-weight:900;line-height:1;font-family:'Rubik Mono One',monospace}
-.sc .lbl{font-size:clamp(9px,1.4vw,11px);font-weight:600;letter-spacing:.6px;text-transform:uppercase;margin-top:4px;opacity:.6}
+.sc{border-radius:16px;padding:20px 22px;border:1px solid rgba(255,255,255,.07);transition:transform .18s,box-shadow .18s;position:relative;overflow:hidden}
+.sc:hover{transform:translateY(-2px);box-shadow:0 14px 40px rgba(0,0,0,.5)}
+.sc::after{content:attr(data-icon);position:absolute;right:10px;bottom:4px;font-size:56px;opacity:.1;pointer-events:none;line-height:1}
+.sc .num{font-size:46px;font-weight:900;line-height:1;font-family:'Rubik Mono One',monospace}
+.sc .lbl{font-size:12px;font-weight:600;letter-spacing:.6px;text-transform:uppercase;margin-top:6px;opacity:.65;color:#dde1f0}
 .sc-pending {background:linear-gradient(135deg,#1c1730,#221e40)} .sc-pending .num{color:#a78bfa}
 .sc-delivery{background:linear-gradient(135deg,#0d1f34,#112840)} .sc-delivery .num{color:#38bdf8}
 .sc-pickup  {background:linear-gradient(135deg,#0c2217,#103020)} .sc-pickup .num{color:#34d399}
 .sc-comp    {background:linear-gradient(135deg,#270d0d,#311010)} .sc-comp .num{color:#f87171}
 
-.alert-banner{background:linear-gradient(90deg,#7c3aed,#4f46e5 50%,#0ea5e9);border-radius:12px;padding:clamp(9px,2vw,13px) clamp(14px,3vw,20px);margin-bottom:16px;display:flex;align-items:center;gap:10px;font-size:clamp(13px,2.5vw,16px);font-weight:700;color:#fff;animation:breathe 2.5s ease-in-out infinite;box-shadow:0 4px 28px rgba(124,58,237,.32)}
+/* ── ALERT BANNERS ── */
+.alert-banner{background:linear-gradient(90deg,#7c3aed,#4f46e5 50%,#0ea5e9);border-radius:12px;padding:12px 22px;margin-bottom:16px;display:flex;align-items:center;gap:10px;font-size:16px;font-weight:700;color:#fff;animation:breathe 2.5s ease-in-out infinite;box-shadow:0 4px 28px rgba(124,58,237,.32)}
+.promo-banner{background:linear-gradient(90deg,#b45309,#d97706 50%,#f59e0b);border-radius:12px;padding:10px 18px;margin-bottom:10px;display:flex;align-items:center;gap:10px;font-size:14px;font-weight:700;color:#fff;box-shadow:0 4px 20px rgba(180,83,9,.3)}
 @keyframes breathe{0%,100%{box-shadow:0 4px 28px rgba(124,58,237,.32)}50%{box-shadow:0 4px 45px rgba(14,165,233,.5)}}
-.adot{width:8px;height:8px;border-radius:50%;background:#fff;animation:blink 1s step-start infinite;flex-shrink:0}
+.adot{width:9px;height:9px;border-radius:50%;background:#fff;animation:blink 1s step-start infinite;flex-shrink:0}
+.pdot{width:9px;height:9px;border-radius:50%;background:#fff;flex-shrink:0}
 @keyframes blink{50%{opacity:0}}
 
-.oc{background:#0f1320;border:1px solid #1a1f35;border-radius:14px;padding:clamp(11px,2vw,18px) clamp(13px,2.5vw,22px);margin-bottom:5px;position:relative;transition:border-color .18s}
+/* ── ORDER CARDS ── */
+.oc{background:#0f1320;border:1px solid #1a1f35;border-radius:16px;padding:18px 22px;margin-bottom:6px;position:relative;transition:border-color .18s}
 .oc:hover{border-color:#283060}
-.oc .stripe{position:absolute;top:0;right:0;width:4px;height:100%;border-radius:0 14px 14px 0}
+.oc .stripe{position:absolute;top:0;right:0;width:5px;height:100%;border-radius:0 16px 16px 0}
 .s-del{background:linear-gradient(180deg,#38bdf8,#0ea5e9)}
 .s-pick{background:linear-gradient(180deg,#34d399,#10b981)}
 .s-comp{background:linear-gradient(180deg,#f87171,#ef4444)}
-.onum{font-size:10px;font-weight:700;color:#3a4270;letter-spacing:1px;text-transform:uppercase}
-.oname{font-size:clamp(16px,3vw,22px);font-weight:800;color:#f1f3ff;margin:2px 0 9px}
-.oitems{background:#090d18;border:1px solid #161c2e;border-radius:9px;padding:8px 12px;font-size:clamp(12px,2vw,14px);color:#6a748a;margin-bottom:9px;line-height:1.5}
-.ometa{display:flex;gap:clamp(8px,2vw,16px);flex-wrap:wrap}
-.ometa span{font-size:clamp(11px,1.8vw,12px);color:#3a4270}
-.phone-pill{background:#0e1828;border:1px solid #1a3050;border-radius:20px;padding:2px 10px;font-size:11px;color:#38bdf8;font-weight:600}
-.badge{display:inline-flex;align-items:center;gap:3px;padding:2px 9px;border-radius:20px;font-size:10px;font-weight:700}
+.s-promo{background:linear-gradient(180deg,#f59e0b,#d97706)}
+.onum{font-size:11px;font-weight:700;color:#3a4270;letter-spacing:1px;text-transform:uppercase}
+.oname{font-size:22px;font-weight:800;color:#f1f3ff;margin:3px 0 10px}
+.oitems{background:#090d18;border:1px solid #161c2e;border-radius:10px;padding:10px 14px;font-size:14px;color:#8a94b0;margin-bottom:10px;line-height:1.6}
+.ometa{display:flex;gap:16px;flex-wrap:wrap}
+.ometa span{font-size:12px;color:#3a4270}
+.phone-pill{background:#0e1828;border:1px solid #1a3050;border-radius:20px;padding:3px 12px;font-size:12px;color:#38bdf8;font-weight:600}
+.badge{display:inline-flex;align-items:center;gap:3px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700}
 .b-del{background:#0c2236;color:#38bdf8;border:1px solid #0e4a75}
 .b-pick{background:#0a2318;color:#34d399;border:1px solid #0d5a38}
 .b-new{background:#2d1f00;color:#fbbf24;border:1px solid #6b4a00;animation:npulse 2s ease-in-out infinite}
+.b-promo{background:#2d1900;color:#f59e0b;border:1px solid #7a4200}
 @keyframes npulse{0%,100%{opacity:1}50%{opacity:.5}}
 
-.cc{background:#100808;border:1px solid #3b1010;border-radius:14px;padding:clamp(12px,2vw,18px) clamp(14px,2.5vw,20px);margin-bottom:5px;position:relative}
-.cname{font-size:clamp(15px,2.5vw,19px);font-weight:800;color:#fca5a5;margin-bottom:5px}
-.cdesc{font-size:clamp(12px,2vw,13px);color:#9ca3af;line-height:1.6}
-.reply-box{background:#0a1020;border:1px solid #1e3060;border-radius:8px;padding:8px 12px;font-size:12px;color:#6a8ab0;line-height:1.5;margin-top:7px}
+/* ── COMPLAINT CARDS ── */
+.cc{background:#100808;border:1px solid #3b1010;border-radius:16px;padding:18px 22px;margin-bottom:6px;position:relative}
+.cname{font-size:19px;font-weight:800;color:#fca5a5;margin-bottom:6px}
+.cdesc{font-size:14px;color:#9ca3af;line-height:1.6}
+.reply-box{background:#0a1020;border:1px solid #1e3060;border-radius:9px;padding:10px 14px;font-size:13px;color:#6a8ab0;line-height:1.5;margin-top:8px}
 
-.cancel-panel{background:#0a0606;border:1px dashed #7f1d1d;border-radius:10px;padding:clamp(10px,2vw,14px) clamp(12px,2.5vw,18px);margin:5px 0}
+/* ── PROMOTION CARDS ── */
+.pc{background:#0f1108;border:1px solid #3d3200;border-radius:16px;padding:18px 22px;margin-bottom:6px;position:relative}
+.pname{font-size:19px;font-weight:800;color:#fcd34d;margin-bottom:6px}
+.pdesc{font-size:14px;color:#9ca3af;line-height:1.6;margin-bottom:8px}
+.pdate{font-size:12px;color:#5a4a10;font-weight:600}
+.p-active{border-color:#5a3a00}
+.p-inactive{opacity:.5}
 
-.stButton>button{font-family:'Rubik',sans-serif!important;font-weight:700!important;border-radius:9px!important;border:none!important;padding:clamp(8px,1.5vw,10px) clamp(10px,2vw,13px)!important;font-size:clamp(11px,1.8vw,13px)!important;width:100%!important;transition:transform .12s,filter .12s!important;white-space:nowrap!important}
+/* ── CANCEL PANEL ── */
+.cancel-panel{background:#0a0606;border:1px dashed #7f1d1d;border-radius:12px;padding:14px 18px;margin:6px 0}
+
+/* ── BUTTONS ── */
+.stButton>button{font-family:'Rubik',sans-serif!important;font-weight:700!important;border-radius:10px!important;border:none!important;padding:11px 14px!important;font-size:14px!important;width:100%!important;transition:transform .12s,filter .12s!important;white-space:nowrap!important}
 .stButton>button:hover{transform:translateY(-1px)!important;filter:brightness(1.1)!important}
 div[data-btn="approve"] .stButton>button{background:linear-gradient(135deg,#059669,#10b981)!important;color:#fff!important;box-shadow:0 3px 12px rgba(16,185,129,.28)!important}
 div[data-btn="cancel"] .stButton>button{background:linear-gradient(135deg,#b91c1c,#ef4444)!important;color:#fff!important}
 div[data-btn="cc"] .stButton>button{background:linear-gradient(135deg,#7f1d1d,#dc2626)!important;color:#fff!important}
-div[data-btn="delete"] .stButton>button{background:#0f1320!important;color:#2e3660!important;border:1px solid #1a1f35!important}
+div[data-btn="delete"] .stButton>button{background:#0f1320!important;color:#4a5280!important;border:1px solid #1a1f35!important}
 div[data-btn="delete"] .stButton>button:hover{background:#180808!important;color:#f87171!important;border-color:#7f1d1d!important}
 div[data-btn="refresh"] .stButton>button{background:linear-gradient(135deg,#1d4ed8,#3b82f6)!important;color:#fff!important}
 div[data-btn="save"] .stButton>button{background:linear-gradient(135deg,#0369a1,#0ea5e9)!important;color:#fff!important}
 div[data-btn="reply"] .stButton>button{background:linear-gradient(135deg,#4f46e5,#7c3aed)!important;color:#fff!important}
-div[data-btn="logout"] .stButton>button{background:#0f1320!important;color:#2e3660!important;border:1px solid #1a1f35!important}
+div[data-btn="logout"] .stButton>button{background:#0f1320!important;color:#4a5280!important;border:1px solid #1a1f35!important}
 div[data-btn="break"] .stButton>button{background:linear-gradient(135deg,#374151,#4b5563)!important;color:#d1d5db!important}
 div[data-btn="endday"] .stButton>button{background:linear-gradient(135deg,#92400e,#d97706)!important;color:#fff!important}
-div[data-btn="login"] .stButton>button{background:linear-gradient(135deg,#4f46e5,#7c3aed)!important;color:#fff!important;font-size:clamp(14px,2.5vw,16px)!important;padding:clamp(12px,2.5vw,15px)!important;box-shadow:0 4px 22px rgba(124,58,237,.38)!important}
+div[data-btn="login"] .stButton>button{background:linear-gradient(135deg,#4f46e5,#7c3aed)!important;color:#fff!important;font-size:16px!important;padding:14px!important;box-shadow:0 4px 22px rgba(124,58,237,.38)!important}
+div[data-btn="promo-add"] .stButton>button{background:linear-gradient(135deg,#92400e,#d97706)!important;color:#fff!important}
+div[data-btn="promo-toggle"] .stButton>button{background:linear-gradient(135deg,#1c3a1a,#22543d)!important;color:#6ee7b7!important;border:1px solid #14532d!important}
+div[data-btn="promo-del"] .stButton>button{background:#100808!important;color:#4a2020!important;border:1px solid #3b1010!important}
+div[data-btn="promo-del"] .stButton>button:hover{color:#f87171!important;border-color:#7f1d1d!important}
 
-.stTextInput>div>div>input,.stNumberInput>div>div>input,.stSelectbox>div>div>div{background:#090d18!important;color:#dde1f0!important;border:1px solid #1a1f35!important;border-radius:9px!important;font-family:'Rubik',sans-serif!important;font-size:clamp(12px,2vw,13px)!important}
-.stTextArea>div>div>textarea{background:#090d18!important;color:#dde1f0!important;border:1px solid #1a1f35!important;border-radius:9px!important;font-family:'Rubik',sans-serif!important;font-size:13px!important}
-label{color:#3a4270!important;font-size:clamp(10px,1.4vw,11px)!important;font-weight:600!important;letter-spacing:.4px!important}
+/* ── INPUTS ── */
+.stTextInput>div>div>input,.stNumberInput>div>div>input,.stSelectbox>div>div>div{background:#0d1120!important;color:#dde1f0!important;border:1px solid #222840!important;border-radius:10px!important;font-family:'Rubik',sans-serif!important;font-size:14px!important}
+.stTextInput>div>div>input::placeholder{color:#3a4270!important}
+.stTextArea>div>div>textarea{background:#0d1120!important;color:#dde1f0!important;border:1px solid #222840!important;border-radius:10px!important;font-family:'Rubik',sans-serif!important;font-size:14px!important}
+.stDateInput>div>div>input{background:#0d1120!important;color:#dde1f0!important;border:1px solid #222840!important;border-radius:10px!important;font-family:'Rubik',sans-serif!important;font-size:14px!important}
+/* date picker popup */
+[data-baseweb="calendar"]{background:#0f1320!important;border:1px solid #1a1f35!important}
+[data-baseweb="calendar"] *{color:#dde1f0!important}
+[data-baseweb="calendar"] [aria-selected="true"]{background:#4f46e5!important}
+label{color:#6a78a0!important;font-size:12px!important;font-weight:600!important;letter-spacing:.4px!important}
+.stCheckbox>label{color:#8a94b0!important;font-size:14px!important}
+.stCheckbox [data-testid="stCheckbox"]{accent-color:#f59e0b}
 
-.stTabs [data-baseweb="tab-list"]{background:#090d18!important;border-radius:11px!important;padding:4px!important;gap:2px!important;border:1px solid #1a1f35!important;flex-wrap:wrap!important}
-.stTabs [data-baseweb="tab"]{background:transparent!important;color:#3a4270!important;border-radius:7px!important;font-weight:700!important;font-size:clamp(10px,1.8vw,13px)!important;padding:clamp(7px,1.5vw,9px) clamp(10px,2vw,15px)!important;border:none!important;transition:all .18s!important;white-space:nowrap!important}
-.stTabs [data-baseweb="tab"]:hover{background:#111828!important;color:#7a88a8!important}
+/* ── TABS ── */
+.stTabs [data-baseweb="tab-list"]{background:#090d18!important;border-radius:12px!important;padding:5px!important;gap:3px!important;border:1px solid #1a1f35!important;flex-wrap:wrap!important}
+.stTabs [data-baseweb="tab"]{background:transparent!important;color:#4a5280!important;border-radius:8px!important;font-weight:700!important;font-size:13px!important;padding:9px 16px!important;border:none!important;transition:all .18s!important;white-space:nowrap!important}
+.stTabs [data-baseweb="tab"]:hover{background:#111828!important;color:#7a88b0!important}
 .stTabs [aria-selected="true"]{background:linear-gradient(135deg,#1d4ed8,#4f46e5)!important;color:#fff!important;box-shadow:0 2px 10px rgba(79,70,229,.32)!important}
-.stTabs [data-baseweb="tab-panel"]{padding-top:14px!important}
+.stTabs [data-baseweb="tab-panel"]{padding-top:16px!important}
 
-.empty-state{text-align:center;padding:clamp(36px,8vw,64px) 20px;color:#1e2438}
-.empty-state .icon{font-size:clamp(36px,8vw,54px);margin-bottom:10px}
-.empty-state h3{color:#252e50!important;font-size:clamp(13px,2.5vw,17px)!important;font-weight:700!important}
+/* ── MISC ── */
+.empty-state{text-align:center;padding:60px 20px;color:#1e2438}
+.empty-state .icon{font-size:52px;margin-bottom:12px}
+.empty-state h3{color:#2a3460!important;font-size:17px!important;font-weight:700!important}
 
-.stats-modal{background:#0f1320;border:1px solid #1a1f35;border-radius:18px;padding:clamp(18px,4vw,32px);margin:16px 0}
-.sg{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}
+.stats-modal{background:#0f1320;border:1px solid #1a1f35;border-radius:18px;padding:28px 32px;margin:16px 0}
+.sg{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:14px}
 @media(min-width:560px){.sg{grid-template-columns:repeat(4,1fr)}}
-.sb{background:#090d18;border:1px solid #1a1f35;border-radius:12px;padding:14px;text-align:center}
-.sb .big{font-size:clamp(22px,5vw,34px);font-weight:900;font-family:'Rubik Mono One',monospace}
-.sb .sm{font-size:10px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;opacity:.55;margin-top:3px}
+.sb{background:#090d18;border:1px solid #1a1f35;border-radius:12px;padding:16px;text-align:center}
+.sb .big{font-size:36px;font-weight:900;font-family:'Rubik Mono One',monospace}
+.sb .sm{font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;opacity:.55;margin-top:4px;color:#dde1f0}
 .sp .big{color:#34d399} .so .big{color:#a78bfa} .sca .big{color:#f87171} .scm .big{color:#fbbf24}
 
 .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
-.lc{background:#0f1320;border:1px solid #1a1f35;border-radius:22px;padding:clamp(26px,6vw,48px);width:min(400px,100%);text-align:center;box-shadow:0 22px 70px rgba(0,0,0,.55)}
-.li{font-size:clamp(44px,10vw,64px);margin-bottom:8px}
-.lc h1{font-size:clamp(18px,4vw,26px)!important;font-weight:900!important;color:#f1f3ff!important;margin-bottom:5px}
-.lc p{color:#252e50;font-size:clamp(11px,2vw,13px);margin-bottom:clamp(18px,4vw,28px)}
+.lc{background:#0f1320;border:1px solid #1a1f35;border-radius:22px;padding:46px;width:min(420px,100%);text-align:center;box-shadow:0 22px 70px rgba(0,0,0,.55)}
+.li{font-size:64px;margin-bottom:10px}
+.lc h1{font-size:26px!important;font-weight:900!important;color:#f1f3ff!important;margin-bottom:6px}
+.lc p{color:#2a3460;font-size:13px;margin-bottom:28px}
 
-.div-line{height:1px;background:#111825;margin:6px 0 12px}
-::-webkit-scrollbar{width:4px;height:4px}
+.div-line{height:1px;background:#111825;margin:8px 0 14px}
+::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-track{background:#080b14}
 ::-webkit-scrollbar-thumb{background:#1a1f35;border-radius:3px}
-.stDataFrame{background:#090d18!important;border-radius:11px!important;border:1px solid #1a1f35!important;overflow:hidden}
+.stDataFrame{background:#090d18!important;border-radius:12px!important;border:1px solid #1a1f35!important;overflow:hidden}
+.stDataFrame *{color:#dde1f0!important}
+/* selectbox dropdown */
+[data-baseweb="popover"],[data-baseweb="menu"]{background:#0f1320!important;border:1px solid #222840!important}
+[data-baseweb="option"]{background:#0f1320!important;color:#dde1f0!important}
+[data-baseweb="option"]:hover{background:#1a1f35!important}
+/* number input arrows */
+.stNumberInput button{background:#1a1f35!important;color:#dde1f0!important;border:none!important}
 </style>
 
 <script>
+/* ── SOUND ENGINE ── */
 const _AC=window.AudioContext||window.webkitAudioContext;
 let _ac=null;
 function _ctx(){if(!_ac||_ac.state==='closed')_ac=new _AC();if(_ac.state==='suspended')_ac.resume();return _ac}
@@ -296,18 +376,19 @@ function _w(){
 }
 setInterval(_w,900);
 
-// Auto-refresh every 25s (only when user is idle >6s)
+/* ── AUTO-REFRESH: כל 12 שניות אם הדף לא פעיל 5 שניות ── */
 let _li=Date.now();
 document.addEventListener('click',()=>_li=Date.now());
 document.addEventListener('keydown',()=>_li=Date.now());
+document.addEventListener('touchstart',()=>_li=Date.now());
 setInterval(()=>{
-  if(Date.now()-_li>6000){
-    const b=Array.from(document.querySelectorAll('button')).find(x=>x.textContent.includes('🔄'));
-    if(b)b.click();
+  if(Date.now()-_li>5000){
+    const b=Array.from(document.querySelectorAll('button')).find(x=>x.textContent.trim()==='🔄');
+    if(b){b.click();}
   }
-},25000);
+},12000);
 
-// Keepalive
+/* ── KEEPALIVE ── */
 setInterval(()=>{try{fetch(window.location.href,{method:'HEAD'})}catch(e){}},100000);
 </script>
 """, unsafe_allow_html=True)
@@ -343,12 +424,16 @@ if not st.session_state.logged_in:
         if st.button("כניסה לניהול  →", use_container_width=True):
             if pwd == ADMIN_PASSWORD:
                 st.session_state.logged_in = True
+                ensure_promotions_table()
                 st.rerun()
             else:
                 st.error("❌ סיסמה שגויה")
         st.markdown('</div>', unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
+
+# ── Ensure promotions table exists ──
+ensure_promotions_table()
 
 # ══════════════════════════════════════════════
 # END-OF-DAY
@@ -358,7 +443,7 @@ if st.session_state.show_end:
     s = fetch_day_stats()
     st.markdown(f"""
         <div class='stats-modal'>
-            <div style='font-size:clamp(17px,3vw,22px);font-weight:900;color:#f1f3ff;margin-bottom:3px'>
+            <div style='font-size:22px;font-weight:900;color:#f1f3ff;margin-bottom:3px'>
                 📊 סיכום היום · {datetime.now().strftime('%d/%m/%Y')}
             </div>
         </div>
@@ -408,11 +493,11 @@ st.markdown(f"""
 h1, h2 = st.columns([5, 1])
 with h1:
     st.markdown(f"""
-        <div style='margin-bottom:14px'>
-            <div style='font-size:clamp(17px,4vw,24px);font-weight:900;color:#f1f3ff;letter-spacing:-.5px'>
+        <div style='margin-bottom:16px'>
+            <div style='font-size:26px;font-weight:900;color:#f1f3ff;letter-spacing:-.5px'>
                 🛒 המכולת של הצדיק
             </div>
-            <div style='font-size:clamp(10px,2vw,12px);color:#252e50;margin-top:2px'>
+            <div style='font-size:13px;color:#2a3460;margin-top:3px'>
                 {datetime.now().strftime('%A %d/%m/%Y · %H:%M')}
             </div>
         </div>
@@ -424,6 +509,7 @@ with h2:
         if st.button("🔄", help="רענן", key="hr"):
             invalidate_orders()
             invalidate_complaints()
+            invalidate_promotions()
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
     with r2:
@@ -449,7 +535,19 @@ if st.session_state.show_exit:
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
     with ex3:
-        st.markdown("<div style='font-size:11px;color:#2a3060;padding:7px 0;line-height:1.5'>☕ סגור, הזמנות ממשיכות<br>📊 ראה סטטיסטיקה ואז צא</div>", unsafe_allow_html=True)
+        st.markdown("<div style='font-size:12px;color:#2a3060;padding:8px 0;line-height:1.6'>☕ סגור, הזמנות ממשיכות<br>📊 ראה סטטיסטיקה ואז צא</div>", unsafe_allow_html=True)
+
+# ── PROMOTIONS BANNERS (active only) ──
+active_promos = fetch_active_promotions()
+if not active_promos.empty:
+    for _, promo in active_promos.iterrows():
+        desc_part = f" · {promo['description']}" if promo.get('description') else ""
+        st.markdown(f"""
+            <div class='promo-banner'>
+                <div class='pdot'></div>
+                🏷️ מבצע פעיל: <strong>{promo['title']}</strong>{desc_part}
+            </div>
+        """, unsafe_allow_html=True)
 
 # ── STATS ──
 st.markdown(f"""
@@ -487,14 +585,14 @@ if pending > 0:
 # ══════════════════════════════════════════════
 # TABS
 # ══════════════════════════════════════════════
-t1, t2, t3, t4, t5 = st.tabs([
+t1, t2, t3, t4, t5, t6 = st.tabs([
     f"📦 לטיפול ({pending})",
     f"⚠️ תלונות ({complaints})",
-    "✅ אושרו", "❌ בוטלו", "🏪 מלאי",
+    "✅ אושרו", "❌ בוטלו", "🏷️ מבצעים", "🏪 מלאי",
 ])
 
 # ──────────────────────────────────────────────
-# TAB 1
+# TAB 1 — PENDING ORDERS
 # ──────────────────────────────────────────────
 with t1:
     srch = st.text_input("🔍", placeholder="שם / מוצר / מספר הזמנה...", key="s1", label_visibility="collapsed")
@@ -527,13 +625,13 @@ with t1:
             st.markdown(f"""
                 <div class='oc'>
                     <div class='stripe {stripe}'></div>
-                    <div style='display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:5px'>
+                    <div style='display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px'>
                         <div>
                             <div class='onum'>#{oid} &nbsp;·&nbsp; {badge} &nbsp;<span class='badge b-new'>חדש</span></div>
                             <div class='oname'>{row['customer_name']}</div>
                         </div>
-                        <div style='display:flex;flex-direction:column;align-items:flex-end;gap:5px'>
-                            <div style='color:#252e50;font-size:11px'>{created}</div>
+                        <div style='display:flex;flex-direction:column;align-items:flex-end;gap:6px'>
+                            <div style='color:#2a3460;font-size:12px'>{created}</div>
                             <span class='phone-pill'>📱 {phone_disp}</span>
                         </div>
                     </div>
@@ -577,25 +675,33 @@ with t1:
             # ── CANCEL PANEL ──
             if st.session_state.cancel_open.get(oid, False):
                 st.markdown("<div class='cancel-panel'>", unsafe_allow_html=True)
-                st.markdown("<div style='font-size:12px;font-weight:700;color:#f87171;margin-bottom:8px'>🔴 סיבת ביטול</div>", unsafe_allow_html=True)
-                cp1, cp2 = st.columns([3, 1])
+                st.markdown("<div style='font-size:13px;font-weight:700;color:#f87171;margin-bottom:10px'>🔴 סיבת ביטול (אופציונלי)</div>", unsafe_allow_html=True)
+                cp1, cp2, cp3 = st.columns([3, 1.5, 1])
                 with cp1:
-                    chosen = st.selectbox("סיבה", ["חוסר במלאי","כתובת שגויה","לקוח לא זמין","מחוץ לאזור","אחר"],
+                    chosen = st.selectbox("סיבה", ["— ללא סיבה —","חוסר במלאי","כתובת שגויה","לקוח לא זמין","מחוץ לאזור","אחר"],
                                           key=f"rs_{oid}", label_visibility="collapsed")
                     st.session_state.cancel_reason[oid] = chosen
                     if chosen == "אחר":
-                        custom = st.text_input("פרט", key=f"rc_{oid}", placeholder="סיבה...", label_visibility="collapsed")
+                        custom = st.text_input("פרט", key=f"rc_{oid}", placeholder="סיבה מפורטת...", label_visibility="collapsed")
                         st.session_state.cancel_custom[oid] = custom
                 with cp2:
                     st.markdown('<div data-btn="cc">', unsafe_allow_html=True)
-                    if st.button("אשר", key=f"ccf_{oid}", use_container_width=True):
-                        reason = st.session_state.cancel_reason.get(oid, "לא צוינה סיבה")
-                        if reason == "אחר":
-                            reason = st.session_state.cancel_custom.get(oid,"") or "לא צוינה סיבה"
+                    if st.button("✔ אשר ביטול", key=f"ccf_{oid}", use_container_width=True):
+                        raw_reason = st.session_state.cancel_reason.get(oid, "— ללא סיבה —")
+                        if raw_reason == "— ללא סיבה —":
+                            reason = None
+                        elif raw_reason == "אחר":
+                            reason = st.session_state.cancel_custom.get(oid,"") or None
+                        else:
+                            reason = raw_reason
+
                         db_execute("UPDATE orders SET status='בוטל', cancellation_reason=%s WHERE id=%s",
                                    (reason, oid), fetch=False)
-                        msg = (f"היי {row['customer_name']}, ההזמנה בוטלה ❌\n"
-                               f"סיבה: {reason}\nמצטערים! 🙏")
+                        if reason:
+                            msg = (f"היי {row['customer_name']}, ההזמנה בוטלה ❌\n"
+                                   f"סיבה: {reason}\nמצטערים! 🙏")
+                        else:
+                            msg = f"היי {row['customer_name']}, ההזמנה בוטלה ❌\nמצטערים! 🙏"
                         ok = notify(row['address'], msg)
                         st.session_state.cancel_open.pop(oid,None)
                         st.session_state.cancel_reason.pop(oid,None)
@@ -603,6 +709,12 @@ with t1:
                         invalidate_orders()
                         st.error("❌ בוטל" + (" · הודעה נשלחה" if ok else " · הודעה נכשלה"))
                         time.sleep(1)
+                        st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
+                with cp3:
+                    st.markdown('<div data-btn="delete">', unsafe_allow_html=True)
+                    if st.button("ביטול", key=f"ccc_{oid}", use_container_width=True):
+                        st.session_state.cancel_open.pop(oid,None)
                         st.rerun()
                     st.markdown('</div>', unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
@@ -625,11 +737,11 @@ with t2:
                 st.markdown(f"""
                     <div class='cc'>
                         <div class='stripe s-comp'></div>
-                        <div style='display:flex;justify-content:space-between;flex-wrap:wrap;gap:5px;margin-bottom:7px'>
+                        <div style='display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:8px'>
                             <div class='cname'>⚠️ {row['customer_name']}</div>
-                            <div style='font-size:11px;color:#2e1a1a'>{t_str}</div>
+                            <div style='font-size:12px;color:#3a1a1a'>{t_str}</div>
                         </div>
-                        <div style='margin-bottom:6px'><span class='phone-pill'>📱 {row['phone']}</span></div>
+                        <div style='margin-bottom:8px'><span class='phone-pill'>📱 {row['phone']}</span></div>
                         <div class='cdesc'>{row['description']}</div>
                         {reply_html}
                     </div>
@@ -652,7 +764,7 @@ with t2:
 
                 if st.session_state.reply_open.get(cid, False):
                     rt = st.text_area("תשובה", key=f"rt_{cid}", placeholder="כתוב תשובה שתישלח בוואטסאפ...",
-                                      height=80, label_visibility="collapsed")
+                                      height=90, label_visibility="collapsed")
                     rs1, _ = st.columns([1, 3])
                     with rs1:
                         st.markdown('<div data-btn="reply">', unsafe_allow_html=True)
@@ -681,7 +793,7 @@ with t2:
         st.info("הרץ ב-DB: ALTER TABLE complaints ADD COLUMN IF NOT EXISTS owner_reply TEXT; ALTER TABLE complaints ADD COLUMN IF NOT EXISTS replied_at TIMESTAMP;")
 
 # ──────────────────────────────────────────────
-# TAB 3
+# TAB 3 — APPROVED
 # ──────────────────────────────────────────────
 with t3:
     adf = fetch_approved()
@@ -692,32 +804,163 @@ with t3:
             "approved_at": st.column_config.DatetimeColumn("אושר",format="DD/MM HH:mm"),
         })
     else:
-        st.info("אין עדיין היסטוריה")
+        st.markdown('<div class="empty-state"><div class="icon">📋</div><h3>אין עדיין היסטוריה</h3></div>', unsafe_allow_html=True)
 
 # ──────────────────────────────────────────────
-# TAB 4
+# TAB 4 — CANCELLED
 # ──────────────────────────────────────────────
 with t4:
     cdf2 = fetch_cancelled()
     if not cdf2.empty:
+        # Replace None/NaN in cancellation_reason with "לא צוינה סיבה"
+        if 'cancellation_reason' in cdf2.columns:
+            cdf2['cancellation_reason'] = cdf2['cancellation_reason'].fillna('לא צוינה סיבה')
+            cdf2['cancellation_reason'] = cdf2['cancellation_reason'].replace('', 'לא צוינה סיבה')
         st.dataframe(cdf2, use_container_width=True, hide_index=True, column_config={
             "id": st.column_config.NumberColumn("מס'",format="%d"),
-            "customer_name":"לקוח","items":"מוצרים","cancellation_reason":"סיבה",
+            "customer_name":"לקוח","items":"מוצרים","cancellation_reason":"סיבת ביטול",
             "created_at": st.column_config.DatetimeColumn("תאריך",format="DD/MM HH:mm"),
         })
     else:
-        st.info("אין הזמנות מבוטלות")
+        st.markdown('<div class="empty-state"><div class="icon">✨</div><h3>אין הזמנות מבוטלות</h3></div>', unsafe_allow_html=True)
 
 # ──────────────────────────────────────────────
-# TAB 5
+# TAB 5 — PROMOTIONS 🏷️
 # ──────────────────────────────────────────────
 with t5:
+    st.markdown("<div style='font-size:15px;font-weight:700;color:#fcd34d;margin-bottom:14px'>🏷️ ניהול מבצעים</div>", unsafe_allow_html=True)
+
+    # ── ADD NEW PROMO ──
+    with st.expander("➕ הוסף מבצע חדש", expanded=False):
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+        pa1, pa2 = st.columns([3, 2])
+        with pa1:
+            p_title = st.text_input("🏷️ שם המבצע", placeholder="10% הנחה על כל הירקות...", key="pt")
+        with pa2:
+            p_desc  = st.text_input("📝 תיאור (אופציונלי)", placeholder="פרטים נוספים...", key="pd")
+
+        p_never = st.checkbox("♾️ ללא הגבלת זמן (NEVER ENDS)", key="pne", value=False)
+
+        if not p_never:
+            pb1, pb2 = st.columns(2)
+            with pb1:
+                p_start = st.date_input("📅 תאריך התחלה", value=date.today(), key="psd")
+            with pb2:
+                p_end   = st.date_input("📅 תאריך סיום", value=date.today(), key="ped")
+        else:
+            p_start = None
+            p_end   = None
+
+        st.markdown('<div data-btn="promo-add">', unsafe_allow_html=True)
+        if st.button("➕ פרסם מבצע", use_container_width=True, key="padd"):
+            if p_title:
+                if p_never:
+                    db_execute(
+                        "INSERT INTO promotions (title, description, active, never_ends, start_date, end_date) VALUES (%s,%s,TRUE,TRUE,NULL,NULL)",
+                        (p_title, p_desc or None), fetch=False
+                    )
+                else:
+                    if p_end < p_start:
+                        st.error("❌ תאריך סיום לא יכול להיות לפני תאריך ההתחלה")
+                    else:
+                        db_execute(
+                            "INSERT INTO promotions (title, description, active, never_ends, start_date, end_date) VALUES (%s,%s,TRUE,FALSE,%s,%s)",
+                            (p_title, p_desc or None, p_start.isoformat(), p_end.isoformat()), fetch=False
+                        )
+                        invalidate_promotions()
+                        st.success(f"✅ המבצע '{p_title}' נוסף!")
+                        time.sleep(.6)
+                        st.rerun()
+                invalidate_promotions()
+                st.success(f"✅ המבצע '{p_title}' נוסף!")
+                time.sleep(.6)
+                st.rerun()
+            else:
+                st.error("חסר שם מבצע")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
+    # ── LIST PROMOS ──
+    promos = fetch_promotions()
+    today_str = date.today().isoformat()
+
+    if promos.empty:
+        st.markdown('<div class="empty-state"><div class="icon">🏷️</div><h3>אין מבצעים. צור מבצע חדש!</h3></div>', unsafe_allow_html=True)
+    else:
+        for _, p in promos.iterrows():
+            pid = int(p['id'])
+            is_active = bool(p['active'])
+            never_ends = bool(p.get('never_ends', False))
+
+            # Figure out if promo is currently valid by date
+            if never_ends:
+                date_str = "<span style='color:#f59e0b;font-size:12px'>♾️ ללא הגבלת זמן</span>"
+                currently_on = is_active
+            else:
+                sd = str(p.get('start_date',''))[:10] if p.get('start_date') else '?'
+                ed = str(p.get('end_date',''))[:10] if p.get('end_date') else '?'
+                date_str = f"<span style='color:#5a4a10;font-size:12px'>📅 {sd} → {ed}</span>"
+                currently_on = is_active and sd <= today_str <= ed
+
+            status_badge = (
+                "<span class='badge b-promo'>🟢 פעיל</span>" if currently_on
+                else "<span class='badge' style='background:#1a1a1a;color:#4a5280;border:1px solid #222'>⏸ לא פעיל</span>"
+            )
+
+            card_class = "pc p-active" if currently_on else "pc p-inactive"
+            st.markdown(f"""
+                <div class='{card_class}'>
+                    <div class='stripe s-promo'></div>
+                    <div style='display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px'>
+                        <div class='pname'>🏷️ {p['title']} &nbsp; {status_badge}</div>
+                        <div>{date_str}</div>
+                    </div>
+                    {'<div class="pdesc">' + str(p["description"]) + '</div>' if p.get("description") else ''}
+                </div>
+            """, unsafe_allow_html=True)
+
+            pm1, pm2, pm3 = st.columns([2, 2, 1])
+            with pm1:
+                toggle_label = "⏸ השבת מבצע" if is_active else "▶️ הפעל מבצע"
+                st.markdown('<div data-btn="promo-toggle">', unsafe_allow_html=True)
+                if st.button(toggle_label, key=f"ptog_{pid}", use_container_width=True):
+                    db_execute("UPDATE promotions SET active=%s WHERE id=%s", (not is_active, pid), fetch=False)
+                    invalidate_promotions()
+                    st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
+            with pm2:
+                # Show extend/edit end date button for date-based promos
+                if not never_ends:
+                    new_end = st.date_input("📅 שנה תאריך סיום", key=f"pext_{pid}", label_visibility="collapsed")
+                    st.markdown('<div data-btn="save">', unsafe_allow_html=True)
+                    if st.button("💾 עדכן תאריך", key=f"pupd_{pid}", use_container_width=True):
+                        db_execute("UPDATE promotions SET end_date=%s WHERE id=%s", (new_end.isoformat(), pid), fetch=False)
+                        invalidate_promotions()
+                        st.success("✅ עודכן!")
+                        time.sleep(.4)
+                        st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
+            with pm3:
+                st.markdown('<div data-btn="promo-del">', unsafe_allow_html=True)
+                if st.button("🗑️", key=f"pdel_{pid}", use_container_width=True, help="מחק מבצע"):
+                    db_execute("DELETE FROM promotions WHERE id=%s", (pid,), fetch=False)
+                    invalidate_promotions()
+                    st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown("<div class='div-line'></div>", unsafe_allow_html=True)
+
+# ──────────────────────────────────────────────
+# TAB 6 — INVENTORY
+# ──────────────────────────────────────────────
+with t6:
     sb1, sb2 = st.tabs(["📋 מוצרים", "➕ הוסף"])
     with sb1:
         ps = st.text_input("🔍", placeholder="חפש מוצר...", key="ps", label_visibility="collapsed")
         pf = fetch_products(ps)
         if pf.empty:
-            st.info("לא נמצאו מוצרים")
+            st.markdown('<div class="empty-state"><div class="icon">📦</div><h3>לא נמצאו מוצרים</h3></div>', unsafe_allow_html=True)
         else:
             for _, p in pf.iterrows():
                 pid = int(p['id'])
@@ -762,4 +1005,4 @@ with t5:
                     st.error("חסר שם/מחיר")
             st.markdown('</div>', unsafe_allow_html=True)
 
-st.markdown("<div style='text-align:center;padding:22px 0 2px;font-size:10px;color:#111825'>המכולת של הצדיק · v5.2</div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align:center;padding:22px 0 4px;font-size:11px;color:#111825'>המכולת של הצדיק · v6.0</div>", unsafe_allow_html=True)
