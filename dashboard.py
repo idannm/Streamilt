@@ -223,12 +223,22 @@ def _read_csv_hebrew(uploaded_file):
     encodings = ['utf-8-sig', 'utf-8', 'cp1255', 'windows-1255', 'iso-8859-8', 'latin-1']
     last_err = None
     for enc in encodings:
-        try:
-            uploaded_file.seek(0)
-            return pd.read_csv(uploaded_file, encoding=enc)
-        except (UnicodeDecodeError, Exception) as e:
-            last_err = e
-    raise ValueError(f"לא ניתן לקרוא את הקובץ — נסו קידודים: {encodings}. שגיאה אחרונה: {last_err}")
+            try:
+                if file_ext == "csv":
+                    # התיקון כאן: הוספנו זיהוי מפריד אוטומטי והתעלמות משורות בעייתיות
+                    df_raw = pd.read_csv(
+                        io.BytesIO(bytes_data), 
+                        encoding=enc, 
+                        sep=None, 
+                        engine='python',
+                        on_bad_lines='skip'
+                    )
+                else:
+                    df_raw = pd.read_excel(io.BytesIO(bytes_data))
+                parsed = True
+                break
+            except Exception as e:
+                last_err = str(e)
 
 def _map_columns(cols):
     """מיפוי גמיש של שמות עמודות לפי רשימה מורחבת, תוך ניקוי רווחים וקטנות."""
