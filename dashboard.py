@@ -317,7 +317,7 @@ section[data-testid="stSidebar"]{display:none!important}
 .oitems{background:#080b18;border:1px solid #141830;border-radius:10px;padding:10px 14px;font-size:14px;color:#7a84a0;margin-bottom:10px;line-height:1.6}
 .oaddr{background:#080e1a;border:1px solid #10192a;border-radius:8px;padding:7px 12px;font-size:13px;color:#4a7090;margin-bottom:8px;display:flex;align-items:center;gap:6px}
 .ometa{display:flex;gap:16px;flex-wrap:wrap;margin-top:2px}
-.ometa span{font-size:12px;color:#2a3058}
+.ometa span{font-size:12px;color:#4a5a80}
 .phone-pill{background:#080f1e;border:1px solid #112540;border-radius:20px;padding:3px 12px;font-size:12px;color:#38bdf8;font-weight:600}
 .badge{display:inline-flex;align-items:center;gap:3px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700}
 .b-del{background:#071a2c;color:#38bdf8;border:1px solid #0a3558}
@@ -439,7 +439,7 @@ label{color:#3a4268!important;font-size:12px!important;font-weight:600!important
 /* ── MISC ── */
 .empty-state{text-align:center;padding:60px 20px;color:#141830}
 .empty-state .icon{font-size:52px;margin-bottom:12px}
-.empty-state h3{color:#1e2440!important;font-size:17px!important;font-weight:700!important}
+.empty-state h3{color:#3a4a70!important;font-size:17px!important;font-weight:700!important}
 .div-line{height:1px;background:#0e1224;margin:8px 0 14px}
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-track{background:#080b18}
@@ -458,21 +458,15 @@ label{color:#3a4268!important;font-size:12px!important;font-weight:600!important
 .sb .sm{font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;color:#2a3058;margin-top:4px}
 .sp .big{color:#34d399}.so .big{color:#a78bfa}.sca .big{color:#f87171}.scm .big{color:#fbbf24}
 
-/* ── LOGIN — מיושר למרכז המסך ── */
-.stApp:has(.login-wrap){display:flex;align-items:center;justify-content:center}
-.login-wrap{
-  position:fixed;top:0;left:0;right:0;bottom:0;
-  display:flex;align-items:center;justify-content:center;
-  background:#0a0d16;z-index:9999;padding:16px
-}
+/* ── LOGIN ── */
 .lc{
   background:#0d1020;border:1px solid #16192e;border-radius:22px;
-  padding:44px 48px;width:min(400px,100%);text-align:center;
-  box-shadow:0 24px 80px rgba(0,0,0,.7)
+  padding:44px 48px;text-align:center;
+  box-shadow:0 24px 80px rgba(0,0,0,.7);margin-top:60px
 }
 .li{font-size:62px;margin-bottom:10px;line-height:1}
 .lc h1{font-size:24px!important;font-weight:900!important;color:#e8ecff!important;margin-bottom:6px}
-.lc p{color:#1e2440;font-size:13px;margin-bottom:28px}
+.lc p{color:#6a78a0;font-size:13px;margin-bottom:20px}
 </style>
 
 <script>
@@ -519,25 +513,25 @@ for k, v in {
 # LOGIN — מוצג במרכז המסך, בלי גלילה
 # ══════════════════════════════════════════════
 if not st.session_state.logged_in:
-    st.markdown("<div class='login-wrap'>", unsafe_allow_html=True)
-    st.markdown("""
-        <div class='lc'>
-            <div class='li'>🛒</div>
-            <h1>המכולת של הצדיק</h1>
-            <p>ממשק ניהול מתקדם · כניסת מנהל</p>
-        </div>
-    """, unsafe_allow_html=True)
-    pwd = st.text_input(" ", type="password", placeholder="🔑  סיסמה...", label_visibility="collapsed", key="login_pwd")
-    st.markdown('<div data-btn="login">', unsafe_allow_html=True)
-    if st.button("כניסה לניהול  →", use_container_width=True, key="login_btn"):
-        if pwd == ADMIN_PASSWORD:
-            st.session_state.logged_in = True
-            ensure_promotions_table()
-            st.rerun()
-        else:
-            st.error("❌ סיסמה שגויה")
-    st.markdown('</div>', unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+    _, col, _ = st.columns([1, 2, 1])
+    with col:
+        st.markdown("""
+            <div class='lc'>
+                <div class='li'>🛒</div>
+                <h1>המכולת של הצדיק</h1>
+                <p>ממשק ניהול מתקדם · כניסת מנהל</p>
+            </div>
+        """, unsafe_allow_html=True)
+        pwd = st.text_input(" ", type="password", placeholder="🔑  סיסמה...", label_visibility="collapsed", key="login_pwd")
+        st.markdown('<div data-btn="login">', unsafe_allow_html=True)
+        if st.button("כניסה לניהול  →", use_container_width=True, key="login_btn"):
+            if pwd == ADMIN_PASSWORD:
+                st.session_state.logged_in = True
+                ensure_promotions_table()
+                st.rerun()
+            else:
+                st.error("❌ סיסמה שגויה")
+        st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
 ensure_promotions_table()
@@ -824,7 +818,7 @@ with t2:
                         <div class='stripe s-comp'></div>
                         <div style='display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:8px'>
                             <div class='cname'>⚠️ {row['customer_name']}</div>
-                            <div style='font-size:12px;color:#2e0c0c'>{t_str}</div>
+                            <div style='font-size:12px;color:#5a2a2a'>{t_str}</div>
                         </div>
                         <div style='margin-bottom:8px'><span class='phone-pill'>📱 {row['phone']}</span></div>
                         <div class='cdesc'>{row['description']}</div>
