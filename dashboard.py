@@ -218,50 +218,69 @@ def notify(addr, msg):
     except:
         return False
 
+def _read_csv_hebrew(uploaded_file):
+    """קריאת CSV עם טיפול אוטומטי בקידוד עברי."""
+    encodings = ['utf-8-sig', 'utf-8', 'cp1255', 'windows-1255', 'iso-8859-8', 'latin-1']
+    last_err = None
+    for enc in encodings:
+        try:
+            uploaded_file.seek(0)
+            return pd.read_csv(uploaded_file, encoding=enc)
+        except (UnicodeDecodeError, Exception) as e:
+            last_err = e
+    raise ValueError(f"לא ניתן לקרוא את הקובץ — נסו קידודים: {encodings}. שגיאה אחרונה: {last_err}")
+
+def _map_columns(cols):
+    """מיפוי גמיש של שמות עמודות לפי רשימה מורחבת, תוך ניקוי רווחים וקטנות."""
+    NAME_KEYS  = {'שם','שם המוצר','שם מוצר','name','product_name','product','מוצר','item','פריט','תיאור'}
+    PRICE_KEYS = {'מחיר','מחיר ליחידה','מחיר יחידה','מחיר ₪','מחיר (₪)','price','cost','עלות'}
+    STOCK_KEYS = {'מלאי','כמות','stock','quantity','qty','כמות במלאי'}
+    col_map = {}
+    for c in cols:
+        cn = c.strip().lower()
+        if cn in NAME_KEYS  and 'name'  not in col_map: col_map['name']  = c
+        if cn in PRICE_KEYS and 'price' not in col_map: col_map['price'] = c
+        if cn in STOCK_KEYS and 'stock' not in col_map: col_map['stock'] = c
+    return col_map
+
 def import_products_from_df(df_import):
     """
-    מייבא מוצרים מ-DataFrame.
-    עמודות חובה: name (שם), price (מחיר)
-    עמודה אופציונלית: stock (כמות) — ברירת מחדל 0
-    לוגיקה: אם המוצר קיים (לפי שם) → UPDATE, אחרת → INSERT
-    מחזיר (inserted, updated, errors)
+    Upsert מוצרים מ-DataFrame.
+    חובה: name/שם + price/מחיר.  אופציונלי: stock/מלאי.
+    לא מוחק שום מוצר קיים ב-DB.
+    מחזיר (inserted, updated, errors).
     """
-    inserted = 0
-    updated  = 0
-    errors   = []
+    inserted, updated, errors = 0, 0, []
 
     # נרמול שמות עמודות
-    df_import.columns = [c.strip().lower() for c in df_import.columns]
-
-    col_map = {}
-    for c in df_import.columns:
-        if c in ('name','שם','product','מוצר','item','פריט'):
-            col_map['name'] = c
-        elif c in ('price','מחיר','עלות','cost','מחיר ₪','מחיר (₪)'):
-            col_map['price'] = c
-        elif c in ('stock','מלאי','כמות','qty','quantity'):
-            col_map['stock'] = c
+    df_import.columns = [str(c).strip() for c in df_import.columns]
+    col_map = _map_columns(df_import.columns)
 
     if 'name' not in col_map or 'price' not in col_map:
-        return 0, 0, ["לא נמצאו עמודות 'שם' ו-'מחיר' בקובץ. ודא שיש כותרת name/שם ו-price/מחיר"]
+        found = ", ".join(df_import.columns.tolist())
+        return 0, 0, [f"לא זוהו עמודות חובה. עמודות שנמצאו: {found}. נדרש: שם/name ומחיר/price"]
 
     for i, row in df_import.iterrows():
         try:
-            name  = str(row[col_map['name']]).strip()
-            price = float(str(row[col_map['price']]).replace('₪','').replace(',','').strip())
-            stock = int(float(str(row.get(col_map.get('stock','_NA_'), 0)).replace(',','').strip() or 0)) if 'stock' in col_map else 0
-
-            if not name or name.lower() in ('nan','none',''):
+            name_raw = str(row[col_map['name']]).strip()
+            if not name_raw or name_raw.lower() in ('nan','none',''):
                 continue
+            price_raw = str(row[col_map['price']]).replace('₪','').replace(',','').strip()
+            price = float(price_raw)
+            if 'stock' in col_map:
+                stock_raw = str(row[col_map['stock']]).replace(',','').strip()
+                stock = int(float(stock_raw)) if stock_raw not in ('','nan','none') else 0
+            else:
+                stock = 0
 
-            existing = db_execute("SELECT id FROM products WHERE name=%s", (name,))
+            existing = db_execute("SELECT id FROM products WHERE name=%s", (name_raw,))
             if existing:
                 db_execute("UPDATE products SET price=%s, stock=%s WHERE name=%s",
-                           (price, stock, name), fetch=False)
+                           (price, stock, name_raw), fetch=False)
                 updated += 1
             else:
-                db_execute("INSERT INTO products (name, price, stock) VALUES (%s, %s, %s)",
-                           (name, price, stock), fetch=False)
+                db_execute("INSERT INTO products (name, price, stock) VALUES (%s,%s,%s)",
+                           (name_raw, price, stock), fetch=False)
                 inserted += 1
         except Exception as e:
             errors.append(f"שורה {i+2}: {e}")
@@ -346,6 +365,15 @@ section[data-testid="stSidebar"]{display:none!important}
 .appr-items{font-size:13px;color:#4a5278;margin-top:3px;line-height:1.5}
 .appr-addr{font-size:12px;color:#2a5070;margin-top:4px;display:flex;align-items:center;gap:5px}
 .appr-time{font-size:11px;color:#1e2840;text-align:left}
+
+/* ── APPROVED LIGHT CARDS ── */
+.oc-light{background:#f0f7f1;border:1px solid #c8e0cc;border-radius:16px;padding:18px 22px;margin-bottom:6px;position:relative;transition:border-color .18s}
+.oc-light:hover{border-color:#8ab89a}
+.oc-light .stripe{position:absolute;top:0;right:0;width:5px;height:100%;border-radius:0 16px 16px 0}
+.onum-light{font-size:11px;font-weight:700;color:#5a8060;letter-spacing:1px;text-transform:uppercase}
+.oname-light{font-size:22px;font-weight:800;color:#1a3020;margin:3px 0 10px}
+.oitems-light{background:#e0f0e4;border:1px solid #b8d8be;border-radius:10px;padding:10px 14px;font-size:14px;color:#3a6040;margin-bottom:10px;line-height:1.6}
+.oaddr-light{background:#d8eedd;border:1px solid #a8d0b0;border-radius:8px;padding:7px 12px;font-size:13px;color:#2a5035;margin-bottom:8px;display:flex;align-items:center;gap:6px;font-weight:600}
 
 /* ── CANCEL PANEL ── */
 .cancel-panel{background:#070404;border:1px dashed #6b1010;border-radius:12px;padding:14px 18px;margin:6px 0}
@@ -859,7 +887,7 @@ with t2:
         st.info("הרץ ב-DB: ALTER TABLE complaints ADD COLUMN IF NOT EXISTS owner_reply TEXT; ALTER TABLE complaints ADD COLUMN IF NOT EXISTS replied_at TIMESTAMP;")
 
 # ──────────────────────────────────────────────
-# TAB 3 — APPROVED (עם כתובת יעד)
+# TAB 3 — APPROVED (עם כתובת יעד + מחיקה עם אישור)
 # ──────────────────────────────────────────────
 with t3:
     adf = fetch_approved()
@@ -872,6 +900,7 @@ with t3:
                       adf['items'].str.contains(srch3,case=False,na=False)]
 
         for _, row in adf.iterrows():
+            oid      = int(row['id'])
             otype    = str(row.get('order_type',''))
             is_pick  = 'איסוף' in otype
             stripe   = 's-pick' if is_pick else 's-del'
@@ -879,24 +908,62 @@ with t3:
             addr_raw = str(row.get('address',''))
             addr_d   = clean_address(addr_raw)
             appr_t   = row['approved_at'].strftime('%H:%M %d/%m') if pd.notna(row['approved_at']) else '—'
+            del_key  = f"del_appr_{oid}"
 
             st.markdown(f"""
-                <div class='oc' style='border-color:#0e1a10'>
+                <div class='oc-light'>
                     <div class='stripe {stripe}'></div>
                     <div style='display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px'>
                         <div>
-                            <div class='onum'>#{int(row['id'])} · {badge}</div>
-                            <div class='oname'>{row['customer_name']}</div>
+                            <div class='onum-light'>#{oid} · {badge}</div>
+                            <div class='oname-light'>{row['customer_name']}</div>
                         </div>
                         <div style='text-align:left'>
-                            <div style='color:#1a2e1a;font-size:11px'>אושר: {appr_t}</div>
-                            <div style='color:#1a3020;font-size:12px;margin-top:3px'>⏱ {row.get('delivery_time','—')}</div>
+                            <div style='color:#6a8a70;font-size:11px;font-weight:600'>✅ אושר: {appr_t}</div>
+                            <div style='color:#5a7a60;font-size:12px;margin-top:3px'>⏱ {row.get('delivery_time','—')}</div>
                         </div>
                     </div>
-                    <div class='oitems'>🛍️ {row['items']}</div>
-                    {'<div class="oaddr">📍 ' + addr_d + '</div>' if addr_d and addr_d not in ('nan','None','') else ''}
+                    <div class='oitems-light'>🛍️ {row['items']}</div>
+                    {'<div class="oaddr-light">📍 ' + addr_d + '</div>' if addr_d and addr_d not in ('nan','None','') else ''}
                 </div>
             """, unsafe_allow_html=True)
+
+            # כפתור מחיקה עם אישור
+            confirming = st.session_state.get(del_key, False)
+            if not confirming:
+                dc1, dc2 = st.columns([6, 1])
+                with dc2:
+                    st.markdown('<div data-btn="delete">', unsafe_allow_html=True)
+                    if st.button("🗑️", key=f"da_{oid}", use_container_width=True, help="מחק מהזיכרון"):
+                        st.session_state[del_key] = True
+                        st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
+            else:
+                st.markdown(
+                    "<div style='background:#1a0a0a;border:1px solid #6b1010;border-radius:10px;"
+                    "padding:10px 16px;margin:4px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap'>"
+                    "<span style='color:#f87171;font-size:13px;font-weight:700'>⚠️ למחוק הזמנה זו לצמיתות?</span>",
+                    unsafe_allow_html=True
+                )
+                bc1, bc2, bc3 = st.columns([3, 2, 2])
+                with bc1:
+                    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+                with bc2:
+                    st.markdown('<div data-btn="cc">', unsafe_allow_html=True)
+                    if st.button("✔ כן, מחק", key=f"dac_{oid}", use_container_width=True):
+                        db_execute("DELETE FROM orders WHERE id=%s", (oid,), fetch=False)
+                        st.session_state.pop(del_key, None)
+                        invalidate_orders()
+                        st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
+                with bc3:
+                    st.markdown('<div data-btn="delete">', unsafe_allow_html=True)
+                    if st.button("✕ ביטול", key=f"dax_{oid}", use_container_width=True):
+                        st.session_state.pop(del_key, None)
+                        st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+
             st.markdown("<div class='div-line'></div>", unsafe_allow_html=True)
 
 # ──────────────────────────────────────────────
@@ -1082,32 +1149,54 @@ with t6:
             try:
                 fname = uploaded.name.lower()
                 if fname.endswith('.csv'):
-                    # נסה עם encoding utf-8 ואז windows-1255
-                    try:
-                        df_raw = pd.read_csv(uploaded, encoding='utf-8-sig')
-                    except:
-                        uploaded.seek(0)
-                        df_raw = pd.read_csv(uploaded, encoding='windows-1255')
+                    df_raw = _read_csv_hebrew(uploaded)
+                elif fname.endswith('.xls'):
+                    uploaded.seek(0)
+                    df_raw = pd.read_excel(uploaded, engine='xlrd')
+                else:  # .xlsx
+                    uploaded.seek(0)
+                    df_raw = pd.read_excel(uploaded, engine='openpyxl')
+
+                # הצג תצוגה מקדימה
+                col_map_preview = _map_columns(df_raw.columns.tolist())
+                cols_found = []
+                if 'name'  in col_map_preview: cols_found.append(f"✅ שם: <b>{col_map_preview['name']}</b>")
+                if 'price' in col_map_preview: cols_found.append(f"✅ מחיר: <b>{col_map_preview['price']}</b>")
+                if 'stock' in col_map_preview: cols_found.append(f"✅ מלאי: <b>{col_map_preview['stock']}</b>")
+                missing = []
+                if 'name'  not in col_map_preview: missing.append("שם/name")
+                if 'price' not in col_map_preview: missing.append("מחיר/price")
+
+                st.markdown(
+                    f"<div style='background:#080b18;border:1px solid #1a1e30;border-radius:10px;padding:12px 16px;margin-bottom:12px;font-size:13px;line-height:1.8'>"
+                    f"<b style='color:#c8cfe0'>נמצאו {len(df_raw)} שורות</b> &nbsp;·&nbsp; "
+                    + " &nbsp;·&nbsp; ".join(f"<span style='color:#7a84a0'>{c}</span>" for c in cols_found)
+                    + ("" if not missing else f"<br><span style='color:#f87171'>⚠️ חסרות: {', '.join(missing)}</span>")
+                    + "</div>",
+                    unsafe_allow_html=True
+                )
+                st.dataframe(df_raw.head(8), use_container_width=True, hide_index=True)
+
+                if missing:
+                    st.error(f"❌ לא ניתן לייבא — חסרות עמודות: {', '.join(missing)}")
                 else:
-                    df_raw = pd.read_excel(uploaded)
-
-                st.markdown(f"<div style='font-size:13px;color:#4a5278;margin-bottom:8px'>נמצאו <strong style='color:#c8cfe0'>{len(df_raw)}</strong> שורות · עמודות: {', '.join(df_raw.columns.tolist())}</div>", unsafe_allow_html=True)
-                st.dataframe(df_raw.head(5), use_container_width=True, hide_index=True)
-
-                st.markdown('<div data-btn="import">', unsafe_allow_html=True)
-                if st.button("📥 יבא לDB עכשיו", use_container_width=True, key="do_import"):
-                    with st.spinner("מייבא מוצרים..."):
-                        ins, upd, errs = import_products_from_df(df_raw.copy())
-                    invalidate_products()
-                    if ins or upd:
-                        st.success(f"✅ יובאו בהצלחה! נוספו: {ins} · עודכנו: {upd}")
-                    if errs:
-                        st.warning("⚠️ שגיאות בחלק מהשורות:")
-                        for e in errs[:10]:
-                            st.caption(e)
-                st.markdown('</div>', unsafe_allow_html=True)
+                    st.markdown('<div data-btn="import">', unsafe_allow_html=True)
+                    if st.button(f"📥 יבא {len(df_raw)} מוצרים לDB", use_container_width=True, key="do_import"):
+                        with st.spinner("מייבא מוצרים..."):
+                            ins, upd, errs = import_products_from_df(df_raw.copy())
+                        invalidate_products()
+                        if ins or upd:
+                            st.success(f"✅ הושלם! נוספו: {ins} מוצרים חדשים · עודכנו: {upd} מוצרים קיימים")
+                        elif not errs:
+                            st.info("ℹ️ לא בוצעו שינויים — כל המוצרים כבר עדכניים")
+                        if errs:
+                            st.warning(f"⚠️ {len(errs)} שגיאות בשורות:")
+                            for e in errs[:15]:
+                                st.caption(f"  {e}")
+                    st.markdown('</div>', unsafe_allow_html=True)
 
             except Exception as e:
                 st.error(f"❌ לא ניתן לקרוא את הקובץ: {e}")
+                st.caption("💡 טיפ: שמור את הקובץ כ-Excel (.xlsx) — זה הפורמט הכי אמין לעברית")
 
 st.markdown("<div style='text-align:center;padding:22px 0 4px;font-size:11px;color:#0e1224'>המכולת של הצדיק · v7.0</div>", unsafe_allow_html=True)
