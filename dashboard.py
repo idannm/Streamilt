@@ -222,16 +222,11 @@ def _read_csv_hebrew(uploaded_file):
     """קריאת CSV עם טיפול אוטומטי בקידוד עברי."""
     encodings = ['utf-8-sig', 'utf-8', 'cp1255', 'windows-1255', 'iso-8859-8', 'latin-1']
     last_err = None
-# הגדרה ישירה של הקידודים בתוך הלולאה כדי למנוע את השגיאה
-        for enc in ['utf-8', 'utf-8-sig', 'cp1255', 'windows-1255', 'iso-8859-8']:
+     for enc in ['utf-8', 'utf-8-sig', 'cp1255', 'windows-1255', 'iso-8859-8']:
             try:
                 if file_ext == "csv":
-                    # קריאת הקובץ כטקסט נקי עם הקידוד הנוכחי בסיבוב
                     text_data = bytes_data.decode(enc, errors='ignore')
-                    
-                    # זיהוי מפריד אוטומטי (פסיק או נקודה-פסיק)
                     separator = ';' if ';' in text_data.split('\n')[0] else ','
-                    
                     from io import StringIO
                     df_raw = pd.read_csv(
                         StringIO(text_data),
@@ -242,7 +237,6 @@ def _read_csv_hebrew(uploaded_file):
                 else:
                     df_raw = pd.read_excel(io.BytesIO(bytes_data))
                 
-                # וידוא שהטבלה נקראה בהצלחה ויש לה עמודות
                 if df_raw is not None and hasattr(df_raw, 'columns'):
                     parsed = True
                     break
