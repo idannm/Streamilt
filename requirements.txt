@@ -5,3 +5,4 @@ groq
 streamlit
 pandas
 gunicorn
+openpyxl
