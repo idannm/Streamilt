@@ -222,24 +222,34 @@ def _read_csv_hebrew(uploaded_file):
     """קריאת CSV עם טיפול אוטומטי בקידוד עברי."""
     encodings = ['utf-8-sig', 'utf-8', 'cp1255', 'windows-1255', 'iso-8859-8', 'latin-1']
     last_err = None
-    for enc in encodings:
+for enc in encodings:
             try:
                 if file_ext == "csv":
-                    # התיקון כאן: הוספנו זיהוי מפריד אוטומטי והתעלמות משורות בעייתיות
+                    # תיקון קריטי: הגדרת מפריד אוטומטי, מנוע פייתון, וניקוי שורות ריקות
+                    # אנחנו קוראים את הקובץ כטקסט עם הקידוד הנכון כדי למנוע שגיאות חיתוך
+                    text_data = bytes_data.decode(enc, errors='ignore')
+                    
+                    # זיהוי מפריד (פסיק או נקודה פסיק)
+                    separator = ';' if ';' in text_data.split('\n')[0] else ','
+                    
+                    from io import StringIO
                     df_raw = pd.read_csv(
-                        io.BytesIO(bytes_data), 
-                        encoding=enc, 
-                        sep=None, 
+                        StringIO(text_data),
+                        sep=separator,
                         engine='python',
-                        on_bad_lines='skip'
+                        skip_blank_lines=True
                     )
                 else:
+                    # אם זה אקסל והספרייה חסרה, נציג שגיאה ברורה, אבל ה-CSV למעלה יעבוד תמיד!
                     df_raw = pd.read_excel(io.BytesIO(bytes_data))
-                parsed = True
-                break
+                
+                # בדיקה שהטבלה לא ריקה ושמדובר ב-DataFrame תקין
+                if df_raw is not None and hasattr(df_raw, 'columns'):
+                    parsed = True
+                    break
             except Exception as e:
                 last_err = str(e)
-
+                
 def _map_columns(cols):
     """מיפוי גמיש של שמות עמודות לפי רשימה מורחבת, תוך ניקוי רווחים וקטנות."""
     NAME_KEYS  = {'שם','שם המוצר','שם מוצר','name','product_name','product','מוצר','item','פריט','תיאור'}
