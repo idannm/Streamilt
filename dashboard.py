@@ -222,14 +222,14 @@ def _read_csv_hebrew(uploaded_file):
     """קריאת CSV עם טיפול אוטומטי בקידוד עברי."""
     encodings = ['utf-8-sig', 'utf-8', 'cp1255', 'windows-1255', 'iso-8859-8', 'latin-1']
     last_err = None
-for enc in encodings:
+# הגדרה ישירה של הקידודים בתוך הלולאה כדי למנוע את השגיאה
+        for enc in ['utf-8', 'utf-8-sig', 'cp1255', 'windows-1255', 'iso-8859-8']:
             try:
                 if file_ext == "csv":
-                    # תיקון קריטי: הגדרת מפריד אוטומטי, מנוע פייתון, וניקוי שורות ריקות
-                    # אנחנו קוראים את הקובץ כטקסט עם הקידוד הנכון כדי למנוע שגיאות חיתוך
+                    # קריאת הקובץ כטקסט נקי עם הקידוד הנוכחי בסיבוב
                     text_data = bytes_data.decode(enc, errors='ignore')
                     
-                    # זיהוי מפריד (פסיק או נקודה פסיק)
+                    # זיהוי מפריד אוטומטי (פסיק או נקודה-פסיק)
                     separator = ';' if ';' in text_data.split('\n')[0] else ','
                     
                     from io import StringIO
@@ -240,10 +240,9 @@ for enc in encodings:
                         skip_blank_lines=True
                     )
                 else:
-                    # אם זה אקסל והספרייה חסרה, נציג שגיאה ברורה, אבל ה-CSV למעלה יעבוד תמיד!
                     df_raw = pd.read_excel(io.BytesIO(bytes_data))
                 
-                # בדיקה שהטבלה לא ריקה ושמדובר ב-DataFrame תקין
+                # וידוא שהטבלה נקראה בהצלחה ויש לה עמודות
                 if df_raw is not None and hasattr(df_raw, 'columns'):
                     parsed = True
                     break
