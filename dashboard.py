@@ -222,7 +222,7 @@ def _read_csv_hebrew(uploaded_file):
     """קריאת CSV עם טיפול אוטומטי בקידוד עברי."""
     encodings = ['utf-8-sig', 'utf-8', 'cp1255', 'windows-1255', 'iso-8859-8', 'latin-1']
     last_err = None
-        for enc in ['utf-8', 'utf-8-sig', 'cp1255', 'windows-1255', 'iso-8859-8']:
+    for enc in ['utf-8', 'utf-8-sig', 'cp1255', 'windows-1255', 'iso-8859-8']:
             try:
                 if file_ext == "csv":
                     text_data = bytes_data.decode(enc, errors='ignore')
